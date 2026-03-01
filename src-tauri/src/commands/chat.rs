@@ -115,11 +115,20 @@ pub async fn send_message(
 
                         log::info!("Attachment uploaded: {} -> {}", atts[i].name, path);
 
-                        // Include the remote HTTP URL in the message for the agent.
-                        // The HTTP server on port 19284 serves ~/.deskclaw/media/
-                        final_message.push_str(
-                            &format!(" http://127.0.0.1:19284/{}", filename)
-                        );
+                        // Include the remote HTTP URL with context about file type
+                        let url = format!("http://127.0.0.1:19284/{}", filename);
+                        let mime = &atts[i].mime_type;
+                        if mime.starts_with("audio/") {
+                            final_message.push_str(
+                                &format!("\n[Voice message (audio file): {}]", url)
+                            );
+                        } else if mime.starts_with("image/") {
+                            final_message.push_str(&format!(" {}", url));
+                        } else {
+                            final_message.push_str(
+                                &format!("\n[Attached file \"{}\": {}]", atts[i].name, url)
+                            );
+                        }
 
                         // Build local tunnel URL for the frontend to display
                         if let Some(port) = *local_media_port {

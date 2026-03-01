@@ -1,77 +1,106 @@
 import { useState, useRef, useEffect } from 'react';
 import { Mic, Square } from 'lucide-react';
-import type { Attachment } from '../../lib/types';
+
+// Chromium SpeechRecognition (available in Tauri WebView2 on Windows)
+const SpeechRecognition = (window as unknown as Record<string, unknown>).SpeechRecognition
+  || (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
 
 interface Props {
-  onRecorded: (attachment: Attachment) => void;
+  onTranscribed: (text: string) => void;
+  onRecordingChange?: (recording: boolean) => void;
 }
 
-export function VoiceRecorder({ onRecorded }: Props) {
+export function VoiceRecorder({ onTranscribed, onRecordingChange }: Props) {
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const [transcript, setTranscript] = useState('');
+  const recognitionRef = useRef<InstanceType<typeof SpeechRecognition> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const transcriptRef = useRef('');
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (recorderRef.current && recorderRef.current.state === 'recording') {
-        recorderRef.current.stop();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { /* ignore */ }
       }
     };
   }, []);
 
-  const startRecording = async () => {
+  if (!SpeechRecognition) return null; // Browser doesn't support speech recognition
+
+  const startRecording = () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm';
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
+      const recognition = new (SpeechRecognition as new () => SpeechRecognitionInstance)();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+      let finalTranscript = '';
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (result.isFinal) {
+            finalTranscript += result[0].transcript + ' ';
+          } else {
+            interim += result[0].transcript;
+          }
+        }
+        const full = (finalTranscript + interim).trim();
+        transcriptRef.current = full;
+        setTranscript(full);
       };
 
-      recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        if (timerRef.current) clearInterval(timerRef.current);
-
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = (reader.result as string).split(',')[1] || '';
-          onRecorded({
-            name: `voice-${Date.now()}.webm`,
-            mimeType: mimeType.split(';')[0],
-            data: base64,
-          });
-        };
-        reader.readAsDataURL(blob);
-
-        setSeconds(0);
-        setRecording(false);
+      recognition.onerror = (event: Event & { error?: string }) => {
+        console.error('[deskclaw] speech recognition error:', event.error);
+        // Don't stop on 'no-speech' — just keep listening
+        if (event.error !== 'no-speech') {
+          stopRecording();
+        }
       };
 
-      recorder.start(250); // collect chunks every 250ms
-      recorderRef.current = recorder;
+      recognition.onend = () => {
+        // If still recording, restart (recognition can stop after silence)
+        if (recognitionRef.current && recording) {
+          try { recognition.start(); } catch { /* ignore */ }
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+      transcriptRef.current = '';
+      setTranscript('');
       setRecording(true);
+      onRecordingChange?.(true);
       setSeconds(0);
 
       timerRef.current = setInterval(() => {
         setSeconds((s) => s + 1);
       }, 1000);
     } catch (err) {
-      console.error('[deskclaw] mic access denied:', err);
+      console.error('[deskclaw] speech recognition failed:', err);
     }
   };
 
   const stopRecording = () => {
-    if (recorderRef.current && recorderRef.current.state === 'recording') {
-      recorderRef.current.stop();
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (recognitionRef.current) {
+      const ref = recognitionRef.current;
+      recognitionRef.current = null;
+      try { ref.stop(); } catch { /* ignore */ }
     }
+
+    const text = transcriptRef.current.trim();
+    if (text) {
+      onTranscribed(text);
+    }
+
+    setTranscript('');
+    setSeconds(0);
+    setRecording(false);
+    onRecordingChange?.(false);
   };
 
   const formatTime = (s: number) => {
@@ -82,7 +111,7 @@ export function VoiceRecorder({ onRecorded }: Props) {
 
   if (recording) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
         <span
           style={{
             width: 8,
@@ -90,11 +119,30 @@ export function VoiceRecorder({ onRecorded }: Props) {
             borderRadius: '50%',
             background: 'var(--accent-danger)',
             animation: 'pulse 1s ease-in-out infinite',
+            flexShrink: 0,
           }}
         />
-        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{
+          fontSize: 'var(--font-sm)',
+          color: 'var(--text-secondary)',
+          fontVariantNumeric: 'tabular-nums',
+          flexShrink: 0,
+        }}>
           {formatTime(seconds)}
         </span>
+        {transcript && (
+          <span style={{
+            fontSize: 'var(--font-sm)',
+            color: 'var(--text-muted)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            fontStyle: 'italic',
+          }}>
+            {transcript}
+          </span>
+        )}
         <button
           onClick={stopRecording}
           style={{
@@ -106,8 +154,9 @@ export function VoiceRecorder({ onRecorded }: Props) {
             color: '#fff',
             display: 'flex',
             alignItems: 'center',
+            flexShrink: 0,
           }}
-          title="Stop recording"
+          title="Stop recording and send"
         >
           <Square size={14} />
         </button>
@@ -131,9 +180,37 @@ export function VoiceRecorder({ onRecorded }: Props) {
       }}
       onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-      title="Record voice message"
+      title="Voice to text"
     >
       <Mic size={18} />
     </button>
   );
+}
+
+// Minimal type declarations for SpeechRecognition
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  [index: number]: { transcript: string; confidence: number };
+}
+
+interface SpeechRecognitionInstance extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: Event & { error?: string }) => void) | null;
+  onend: (() => void) | null;
 }

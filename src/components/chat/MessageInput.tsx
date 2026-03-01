@@ -11,6 +11,7 @@ import type { Attachment } from '../../lib/types';
 export function MessageInput() {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const autoSendingRef = useRef(false);
@@ -206,72 +207,79 @@ export function MessageInput() {
           transition: 'border-color 0.2s',
         }}
       >
-        <EmojiPicker onSelect={insertEmoji} />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            cursor: 'pointer',
-            color: 'var(--text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-            padding: '4px',
-            borderRadius: 'var(--radius-sm)',
-            transition: 'color 0.15s',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-          title="Attach file"
-        >
-          <Paperclip size={18} />
-        </button>
+        {!isRecording && <EmojiPicker onSelect={insertEmoji} />}
+        {!isRecording && (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '4px',
+              borderRadius: 'var(--radius-sm)',
+              transition: 'color 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+            title="Attach file"
+          >
+            <Paperclip size={18} />
+          </button>
+        )}
         <VoiceRecorder
-          onRecorded={(att) => setAttachments((prev) => [...prev, att])}
+          onTranscribed={(text) => setText((prev) => prev ? `${prev} ${text}` : text)}
+          onRecordingChange={setIsRecording}
         />
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            const el = e.target;
-            el.style.height = 'auto';
-            el.style.height = Math.min(el.scrollHeight, 150) + 'px';
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={agentBusy ? 'Type to queue a message...' : 'Send a message...'}
-          rows={1}
-          style={{
-            flex: 1,
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            color: 'var(--text-primary)',
-            fontSize: 'var(--font-md)',
-            fontFamily: 'inherit',
-            resize: 'none',
-            lineHeight: 1.5,
-            maxHeight: '150px',
-          }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={!text.trim() && attachments.length === 0}
-          style={{
-            background: (text.trim() || attachments.length > 0) ? 'var(--accent-primary)' : 'transparent',
-            border: 'none',
-            borderRadius: 'var(--radius-md)',
-            padding: '8px',
-            cursor: (text.trim() || attachments.length > 0) ? 'pointer' : 'default',
-            color: (text.trim() || attachments.length > 0) ? '#fff' : 'var(--text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-            transition: 'all 0.2s ease',
-            flexShrink: 0,
-          }}
-        >
-          <Send size={18} />
-        </button>
+        {!isRecording && (
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              const el = e.target;
+              el.style.height = 'auto';
+              el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={agentBusy ? 'Type to queue a message...' : 'Send a message...'}
+            rows={1}
+            style={{
+              flex: 1,
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              color: 'var(--text-primary)',
+              fontSize: 'var(--font-md)',
+              fontFamily: 'inherit',
+              resize: 'none',
+              lineHeight: 1.5,
+              maxHeight: '150px',
+            }}
+          />
+        )}
+        {!isRecording && (
+          <button
+            onClick={handleSend}
+            disabled={!text.trim() && attachments.length === 0}
+            style={{
+              background: (text.trim() || attachments.length > 0) ? 'var(--accent-primary)' : 'transparent',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              padding: '8px',
+              cursor: (text.trim() || attachments.length > 0) ? 'pointer' : 'default',
+              color: (text.trim() || attachments.length > 0) ? '#fff' : 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'all 0.2s ease',
+              flexShrink: 0,
+            }}
+          >
+            <Send size={18} />
+          </button>
+        )}
       </div>
       <div
         style={{
