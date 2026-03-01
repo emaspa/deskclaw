@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, UserCircle } from 'lucide-react';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useConnectionStore } from '../../store/connectionStore';
@@ -10,7 +10,10 @@ import type { SavedAccount, ConnectParams } from '../../lib/types';
 export function AccountSelector() {
   const accounts = useSettingsStore((s) => s.accounts);
   const activeAccountId = useSettingsStore((s) => s.activeAccountId);
+  const autoLogin = useSettingsStore((s) => s.autoLogin);
+  const lastAccountId = useSettingsStore((s) => s.lastAccountId);
   const setPhase = useConnectionStore((s) => s.setPhase);
+  const autoLoginAttempted = useRef(false);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<SavedAccount | null>(null);
@@ -49,8 +52,9 @@ export function AccountSelector() {
         token: token || '',
       };
 
-      // Mark this account as active
+      // Mark this account as active and remember for auto-login
       useSettingsStore.getState().loadAccount(account.id);
+      useSettingsStore.getState().setLastAccountId(account.id);
 
       await connectSsh(params);
     } catch (e) {
@@ -60,6 +64,16 @@ export function AccountSelector() {
       setConnectingId(null);
     }
   };
+
+  // Auto-login on mount if enabled
+  useEffect(() => {
+    if (autoLoginAttempted.current) return;
+    if (!autoLogin || !lastAccountId) return;
+    const account = accounts.find((a) => a.id === lastAccountId);
+    if (!account) return;
+    autoLoginAttempted.current = true;
+    handleConnect(account);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

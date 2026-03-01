@@ -1,16 +1,27 @@
+import { useState, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Minus, Square, X, Github } from 'lucide-react';
+import { Minus, Square, X, Github, Settings } from 'lucide-react';
 import { ConnectionForm } from './ConnectionForm';
 import { ConnectionStatus } from './ConnectionStatus';
 import { AccountSelector } from './AccountSelector';
 import { GlassPanel } from '../ui/GlassPanel';
+import { SettingsDialog } from '../settings/SettingsDialog';
 import { useSettingsStore } from '../../store/settingsStore';
+import { setCloseToTray } from '../../lib/tauri';
 import { isMacOS } from '../../lib/platform';
 
 export function ConnectionScreen() {
   const appWindow = getCurrentWindow();
   const hasAccounts = useSettingsStore((s) => s.accounts.length > 0);
+  const closeToTray = useSettingsStore((s) => s.closeToTray);
+  const minimizeToTray = useSettingsStore((s) => s.minimizeToTray);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Sync close-to-tray setting to Rust backend on mount and when it changes
+  useEffect(() => {
+    setCloseToTray(closeToTray).catch(() => {});
+  }, [closeToTray]);
 
   return (
     <div
@@ -28,48 +39,76 @@ export function ConnectionScreen() {
           alignItems: 'center',
           justifyContent: 'flex-end',
           padding: '0 12px',
+          paddingLeft: isMacOS ? '78px' : '12px',
           height: '38px',
           userSelect: 'none',
           flexShrink: 0,
         }}
       >
-        {!isMacOS && (
-          <div style={{ display: 'flex', gap: '2px' }}>
-            {[
-              { icon: Minus, action: () => appWindow.minimize() },
-              { icon: Square, action: () => appWindow.toggleMaximize() },
-              { icon: X, action: () => appWindow.close(), danger: true },
-            ].map(({ icon: Icon, action, danger }, i) => (
-              <button
-                key={i}
-                onClick={action}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  padding: '6px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = danger
-                    ? 'rgba(255, 82, 82, 0.2)'
-                    : 'rgba(255, 255, 255, 0.06)';
-                  if (danger) e.currentTarget.style.color = 'var(--accent-danger)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = 'var(--text-secondary)';
-                }}
-              >
-                <Icon size={14} />
-              </button>
-            ))}
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '2px' }}>
+          {/* Settings gear icon */}
+          <button
+            onClick={() => setShowSettings(true)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              padding: '6px 8px',
+              borderRadius: 'var(--radius-sm)',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            <Settings size={14} />
+          </button>
+
+          {/* Window controls — only on non-macOS */}
+          {!isMacOS && (
+            <>
+              {[
+                { icon: Minus, action: () => minimizeToTray ? appWindow.hide() : appWindow.minimize() },
+                { icon: Square, action: () => appWindow.toggleMaximize() },
+                { icon: X, action: () => closeToTray ? appWindow.hide() : appWindow.close(), danger: true },
+              ].map(({ icon: Icon, action, danger }, i) => (
+                <button
+                  key={i}
+                  onClick={action}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    padding: '6px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = danger
+                      ? 'rgba(255, 82, 82, 0.2)'
+                      : 'rgba(255, 255, 255, 0.06)';
+                    if (danger) e.currentTarget.style.color = 'var(--accent-danger)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = 'var(--text-secondary)';
+                  }}
+                >
+                  <Icon size={14} />
+                </button>
+              ))}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Connection content */}
@@ -249,6 +288,8 @@ export function ConnectionScreen() {
       >
         v0.1.0
       </div>
+
+      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

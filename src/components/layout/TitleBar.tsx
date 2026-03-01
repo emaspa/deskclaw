@@ -1,10 +1,13 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, Square, X } from 'lucide-react';
 import { ConnectionStatus } from '../connection/ConnectionStatus';
+import { useSettingsStore } from '../../store/settingsStore';
 import { isMacOS } from '../../lib/platform';
 
 export function TitleBar() {
   const appWindow = getCurrentWindow();
+  const closeToTray = useSettingsStore((s) => s.closeToTray);
+  const minimizeToTray = useSettingsStore((s) => s.minimizeToTray);
 
   return (
     <div
@@ -50,9 +53,9 @@ export function TitleBar() {
       {!isMacOS && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           {[
-            { icon: Minus, action: () => appWindow.minimize() },
+            { icon: Minus, action: () => minimizeToTray ? appWindow.hide() : appWindow.minimize() },
             { icon: Square, action: () => appWindow.toggleMaximize() },
-            { icon: X, action: () => appWindow.close(), danger: true },
+            { icon: X, action: () => closeToTray ? appWindow.hide() : appWindow.close(), danger: true },
           ].map(({ icon: Icon, action, danger }, i) => (
             <button
               key={i}

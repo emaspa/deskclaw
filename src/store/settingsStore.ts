@@ -14,9 +14,19 @@ interface SettingsState {
   accounts: SavedAccount[];
   activeAccountId: string | null;
 
+  // App behavior settings
+  closeToTray: boolean;
+  minimizeToTray: boolean;
+  autoLogin: boolean;
+  lastAccountId: string | null;
+
   // Form actions
   setField: <K extends keyof SettingsState>(field: K, value: SettingsState[K]) => void;
   reset: () => void;
+
+  // App setting actions
+  setAppSetting: <K extends 'closeToTray' | 'minimizeToTray' | 'autoLogin'>(key: K, value: SettingsState[K]) => void;
+  setLastAccountId: (id: string | null) => void;
 
   // Account CRUD
   addAccount: (account: SavedAccount) => void;
@@ -42,9 +52,16 @@ export const useSettingsStore = create<SettingsState>()(
       ...formDefaults,
       accounts: [],
       activeAccountId: null,
+      closeToTray: true,
+      minimizeToTray: false,
+      autoLogin: false,
+      lastAccountId: null,
 
       setField: (field, value) => set({ [field]: value } as Partial<SettingsState>),
       reset: () => set({ ...formDefaults, activeAccountId: null }),
+
+      setAppSetting: (key, value) => set({ [key]: value } as Partial<SettingsState>),
+      setLastAccountId: (id) => set({ lastAccountId: id }),
 
       addAccount: (account) =>
         set((s) => ({ accounts: [...s.accounts, account] })),
@@ -77,11 +94,10 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'deskclaw-settings',
-      version: 1,
+      version: 2,
       migrate: (persisted: unknown, version: number) => {
+        const old = persisted as Record<string, unknown>;
         if (version === 0 || !version) {
-          // Old format: flat fields only, no accounts
-          const old = persisted as Record<string, unknown>;
           return {
             host: (old.host as string) || '',
             port: (old.port as number) || 22,
@@ -90,6 +106,19 @@ export const useSettingsStore = create<SettingsState>()(
             keyPath: (old.keyPath as string) || '',
             accounts: [],
             activeAccountId: null,
+            closeToTray: true,
+            minimizeToTray: false,
+            autoLogin: false,
+            lastAccountId: null,
+          };
+        }
+        if (version === 1) {
+          return {
+            ...old,
+            closeToTray: true,
+            minimizeToTray: false,
+            autoLogin: false,
+            lastAccountId: null,
           };
         }
         return persisted as SettingsState;

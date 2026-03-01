@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { SessionInfo, ChatMessage, ConnectionPhase, ConnectParams, AppSettings, Attachment } from './types';
 
 export async function connectSsh(params: ConnectParams): Promise<void> {
@@ -84,4 +85,18 @@ export async function encryptString(value: string): Promise<string> {
 
 export async function decryptString(encrypted: string): Promise<string> {
   return invoke('decrypt_string', { encrypted });
+}
+
+export async function setCloseToTray(enabled: boolean): Promise<void> {
+  return invoke('set_close_to_tray', { enabled });
+}
+
+export function hideWindow(): void {
+  getCurrentWindow().hide();
+}
+
+export function showWindow(): void {
+  const w = getCurrentWindow();
+  w.show();
+  w.setFocus();
 }

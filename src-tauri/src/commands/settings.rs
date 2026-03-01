@@ -1,5 +1,8 @@
+use std::sync::atomic::Ordering;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
+
+use crate::state::app_state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppSettings {
@@ -20,6 +23,15 @@ pub async fn save_settings(
     let path = app_dir.join("settings.json");
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_close_to_tray(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.close_to_tray.store(enabled, Ordering::Relaxed);
     Ok(())
 }
 

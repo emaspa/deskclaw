@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::Mutex;
 
 use crate::gateway::client::GatewayConnection;
@@ -51,6 +52,8 @@ pub struct AppState {
     pub local_port: Mutex<Option<u16>>,
     /// Local port that tunnels to the remote HTTP media server (serves ~/.deskclaw/media/)
     pub media_server_port: Mutex<Option<u16>>,
+    /// Whether the window should hide to tray instead of closing
+    pub close_to_tray: AtomicBool,
 }
 
 impl AppState {
@@ -65,6 +68,7 @@ impl AppState {
             device_token: Mutex::new(None),
             local_port: Mutex::new(None),
             media_server_port: Mutex::new(None),
+            close_to_tray: AtomicBool::new(true),
         }
     }
 }
