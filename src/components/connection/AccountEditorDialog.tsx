@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Upload } from 'lucide-react';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
+import { ImageCropper } from '../ui/ImageCropper';
 import { useSettingsStore } from '../../store/settingsStore';
 import { encryptString } from '../../lib/tauri';
 import type { SavedAccount } from '../../lib/types';
@@ -29,30 +30,18 @@ export function AccountEditorDialog({ account, onClose }: Props) {
   const [keyPassphrase, setKeyPassphrase] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [cropperSrc, setCropperSrc] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
 
     const reader = new FileReader();
     reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        // Resize to 128x128 via canvas
-        const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 128;
-        const ctx = canvas.getContext('2d')!;
-        // Center crop
-        const size = Math.min(img.width, img.height);
-        const sx = (img.width - size) / 2;
-        const sy = (img.height - size) / 2;
-        ctx.drawImage(img, sx, sy, size, size, 0, 0, 128, 128);
-        setAvatar(canvas.toDataURL('image/png'));
-      };
-      img.src = reader.result as string;
+      setCropperSrc(reader.result as string);
     };
     reader.readAsDataURL(file);
   };
@@ -101,7 +90,7 @@ export function AccountEditorDialog({ account, onClose }: Props) {
     }
   };
 
-  return createPortal(
+  return <>{createPortal(
     <div
       style={{
         position: 'fixed',
@@ -275,5 +264,16 @@ export function AccountEditorDialog({ account, onClose }: Props) {
       </div>
     </div>,
     document.body,
-  );
+  )}
+  {cropperSrc && (
+    <ImageCropper
+      imageSrc={cropperSrc}
+      onCrop={(dataUrl) => {
+        setAvatar(dataUrl);
+        setCropperSrc(null);
+      }}
+      onCancel={() => setCropperSrc(null)}
+    />
+  )}
+  </>;
 }

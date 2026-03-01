@@ -4,7 +4,7 @@ import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useConnectionStore } from '../../store/connectionStore';
-import { connectSsh, decryptString, encryptString } from '../../lib/tauri';
+import { connectSsh, encryptString } from '../../lib/tauri';
 import type { ConnectParams } from '../../lib/types';
 
 export function ConnectionForm() {
@@ -18,45 +18,15 @@ export function ConnectionForm() {
   const [error, setError] = useState('');
   const [savingAccount, setSavingAccount] = useState(false);
 
-  // When an account is loaded, decrypt its credentials
   const activeAccountId = useSettingsStore((s) => s.activeAccountId);
-  const accounts = useSettingsStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.id === activeAccountId);
 
+  // Clear form fields on mount so saved account data doesn't leak into the manual form
   useEffect(() => {
-    if (!activeAccount) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        if (activeAccount.encryptedPassword) {
-          const pw = await decryptString(activeAccount.encryptedPassword);
-          if (!cancelled) setPassword(pw);
-        } else {
-          if (!cancelled) setPassword('');
-        }
-
-        if (activeAccount.encryptedToken) {
-          const t = await decryptString(activeAccount.encryptedToken);
-          if (!cancelled) setToken(t);
-        } else {
-          if (!cancelled) setToken('');
-        }
-
-        if (activeAccount.encryptedKeyPassphrase) {
-          const kp = await decryptString(activeAccount.encryptedKeyPassphrase);
-          if (!cancelled) setKeyPassphrase(kp);
-        } else {
-          if (!cancelled) setKeyPassphrase('');
-        }
-      } catch (e) {
-        console.error('[deskclaw] failed to decrypt credentials:', e);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [activeAccountId]);
+    settings.reset();
+    setPassword('');
+    setToken('');
+    setKeyPassphrase('');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isConnecting =
     phase !== 'Disconnected' &&

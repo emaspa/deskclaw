@@ -1,19 +1,20 @@
 import { useState } from 'react';
 import { Plus, UserCircle } from 'lucide-react';
 import { useSettingsStore } from '../../store/settingsStore';
+import { useConnectionStore } from '../../store/connectionStore';
 import { AccountItem } from './AccountItem';
 import { AccountEditorDialog } from './AccountEditorDialog';
-import type { SavedAccount } from '../../lib/types';
+import { connectSsh, decryptString } from '../../lib/tauri';
+import type { SavedAccount, ConnectParams } from '../../lib/types';
 
 export function AccountSelector() {
   const accounts = useSettingsStore((s) => s.accounts);
   const activeAccountId = useSettingsStore((s) => s.activeAccountId);
-  const loadAccount = useSettingsStore((s) => s.loadAccount);
-  const deleteAccount = useSettingsStore((s) => s.deleteAccount);
-  const clearActiveAccount = useSettingsStore((s) => s.clearActiveAccount);
+  const setPhase = useConnectionStore((s) => s.setPhase);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<SavedAccount | null>(null);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
 
   const handleEdit = (account: SavedAccount) => {
     setEditingAccount(account);
@@ -25,8 +26,39 @@ export function AccountSelector() {
     setEditorOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    deleteAccount(id);
+  const handleConnect = async (account: SavedAccount) => {
+    setConnectingId(account.id);
+    setPhase('ConnectingSsh');
+
+    try {
+      const password = account.encryptedPassword
+        ? await decryptString(account.encryptedPassword) : undefined;
+      const token = account.encryptedToken
+        ? await decryptString(account.encryptedToken) : undefined;
+      const keyPassphrase = account.encryptedKeyPassphrase
+        ? await decryptString(account.encryptedKeyPassphrase) : undefined;
+
+      const params: ConnectParams = {
+        host: account.host,
+        port: account.port,
+        username: account.username,
+        auth_method: account.authMethod,
+        password: account.authMethod === 'password' ? password : undefined,
+        key_path: account.authMethod === 'key' ? account.keyPath : undefined,
+        key_passphrase: account.authMethod === 'key' ? keyPassphrase : undefined,
+        token: token || '',
+      };
+
+      // Mark this account as active
+      useSettingsStore.getState().loadAccount(account.id);
+
+      await connectSsh(params);
+    } catch (e) {
+      const msg = typeof e === 'string' ? e : (e as Error).message || 'Connection failed';
+      setPhase({ Error: msg });
+    } finally {
+      setConnectingId(null);
+    }
   };
 
   return (
@@ -82,41 +114,38 @@ export function AccountSelector() {
           <AccountItem
             key={account.id}
             account={account}
-            isActive={account.id === activeAccountId}
-            onClick={() => loadAccount(account.id)}
+            isActive={account.id === activeAccountId || account.id === connectingId}
+            onClick={() => handleConnect(account)}
             onEdit={() => handleEdit(account)}
-            onDelete={() => handleDelete(account.id)}
           />
         ))}
       </div>
 
       {/* Manual entry option */}
-      {activeAccountId && (
-        <button
-          onClick={clearActiveAccount}
-          style={{
-            background: 'transparent',
-            border: '1px dashed var(--glass-border)',
-            borderRadius: 'var(--radius-md)',
-            padding: '8px',
-            cursor: 'pointer',
-            color: 'var(--text-muted)',
-            fontSize: 'var(--font-xs)',
-            fontFamily: 'inherit',
-            transition: 'all 0.15s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--text-secondary)';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'var(--glass-border)';
-            e.currentTarget.style.color = 'var(--text-muted)';
-          }}
-        >
-          Manual entry
-        </button>
-      )}
+      <button
+        onClick={() => useSettingsStore.getState().clearActiveAccount()}
+        style={{
+          background: 'transparent',
+          border: '1px dashed var(--glass-border)',
+          borderRadius: 'var(--radius-md)',
+          padding: '8px',
+          cursor: 'pointer',
+          color: 'var(--text-muted)',
+          fontSize: 'var(--font-xs)',
+          fontFamily: 'inherit',
+          transition: 'all 0.15s',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'var(--text-secondary)';
+          e.currentTarget.style.color = 'var(--text-secondary)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = 'var(--glass-border)';
+          e.currentTarget.style.color = 'var(--text-muted)';
+        }}
+      >
+        Manual entry
+      </button>
 
       {editorOpen && (
         <AccountEditorDialog
