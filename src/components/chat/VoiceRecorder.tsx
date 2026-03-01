@@ -14,7 +14,8 @@ export function VoiceRecorder({ onTranscribed, onRecordingChange }: Props) {
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [transcript, setTranscript] = useState('');
-  const recognitionRef = useRef<InstanceType<typeof SpeechRecognition> | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const transcriptRef = useRef('');
 
