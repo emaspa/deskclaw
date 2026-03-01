@@ -1,4 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { Minus, Square, X } from 'lucide-react';
 import { ConnectionStatus } from '../connection/ConnectionStatus';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -46,7 +47,17 @@ export function TitleBar() {
           DeskClaw
         </span>
         <ConnectionStatus />
-        <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>v0.1.0</span>
+        <span
+          onClick={() => openUrl('https://github.com/emaspa/deskclaw')}
+          style={{
+            fontSize: 'var(--font-xs)',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            transition: 'color 0.15s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+        >v0.1.0</span>
       </div>
 
       {/* Window controls — only on non-macOS (macOS uses native traffic lights) */}
