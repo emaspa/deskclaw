@@ -48,7 +48,14 @@ Built with **Tauri v2** (Rust backend) and **React 19** (TypeScript frontend).
 
 ## Screenshots
 
-<!-- Add screenshots here -->
+<p align="center">
+  <img src=".github/screenshots/screen1.png" width="48%" />
+  <img src=".github/screenshots/screen2.png" width="48%" />
+</p>
+<p align="center">
+  <img src=".github/screenshots/screen3.png" width="48%" />
+  <img src=".github/screenshots/screen4.png" width="48%" />
+</p>
 
 ## Installation
 
