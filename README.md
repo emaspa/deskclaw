@@ -31,6 +31,7 @@ Built with **Tauri v2** (Rust backend) and **React 19** (TypeScript frontend).
 - File attachments with inline image/audio preview
 - Voice-to-text via Web Speech Recognition
 - Emoji picker
+- Model picker with live switching
 - Context token usage display
 
 **Connections**
