@@ -29,9 +29,16 @@ const emoticons: [RegExp, string][] = [
 ];
 
 export function parseEmoticons(text: string): string {
-  let result = text;
+  // Protect URLs from emoticon replacement
+  const urls: string[] = [];
+  let result = text.replace(/https?:\/\/[^\s)>\]]+/g, (url) => {
+    urls.push(url);
+    return `\x00URL${urls.length - 1}\x00`;
+  });
   for (const [pattern, emoji] of emoticons) {
     result = result.replace(pattern, emoji);
   }
+  // Restore URLs
+  result = result.replace(/\x00URL(\d+)\x00/g, (_, i) => urls[Number(i)]);
   return result;
 }

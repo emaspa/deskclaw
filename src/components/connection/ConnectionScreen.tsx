@@ -286,7 +286,7 @@ export function ConnectionScreen() {
           color: 'var(--text-muted)',
         }}
       >
-        v0.1.1
+        v0.1.2
       </div>
 
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
