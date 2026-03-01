@@ -16,6 +16,19 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::new())
+        .setup(|app| {
+            // On macOS, enable decorations so native traffic light buttons appear.
+            // titleBarStyle "overlay" in tauri.conf.json makes them overlay our content.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_decorations(true);
+                }
+            }
+            let _ = app;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::connection::connect_ssh,
             commands::connection::disconnect_ssh,
