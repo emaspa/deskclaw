@@ -62,12 +62,12 @@ Built with **Tauri v2** (Rust backend) and **React 19** (TypeScript frontend).
 
 Download the latest release for your platform from the [Releases](https://github.com/emaspa/deskclaw/releases) page:
 
-| Platform | Format |
-|----------|--------|
-| Windows | `.msi` / `.exe` |
-| macOS (Apple Silicon) | `.dmg` |
-| macOS (Intel) | `.dmg` |
-| Linux | `.deb` / `.AppImage` |
+| Platform | Formats |
+|----------|---------|
+| Windows | `.exe` (NSIS installer), `.msi` |
+| macOS (Apple Silicon) | `.dmg`, `.app.tar.gz` |
+| macOS (Intel) | `.dmg`, `.app.tar.gz` |
+| Linux | `.deb`, `.rpm`, `.AppImage` |
 
 ## Building from Source
 
