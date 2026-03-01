@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { useSessionStore } from '../../store/sessionStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { downloadRemoteFile } from '../../lib/tauri';
+import { parseEmoticons } from '../../lib/emoji';
 import type { ChatMessage } from '../../lib/types';
 
 interface MessageBubbleProps {
@@ -198,11 +199,12 @@ function RemoteMediaFallback({ path }: { path: string }) {
 /** Renders message text with inline media for any .deskclaw/media/ paths or tunneled URLs */
 function MessageContent({ content }: { content: string }) {
   const { text, urls } = parseMediaRefs(content);
+  const parsed = text ? parseEmoticons(text) : '';
   return (
     <div>
-      {text && (
+      {parsed && (
         <div className="markdown-body">
-          <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+          <Markdown remarkPlugins={[remarkGfm]}>{parsed}</Markdown>
         </div>
       )}
       {urls.length > 0 && (
