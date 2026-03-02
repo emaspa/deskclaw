@@ -33,7 +33,13 @@ export function MessageList() {
     if (!el) return;
     el.addEventListener('scroll', checkNearBottom, { passive: true });
     return () => el.removeEventListener('scroll', checkNearBottom);
-  }, [checkNearBottom]);
+  }, [activeSessionId, checkNearBottom]);
+
+  // Reset scroll state when switching sessions
+  useEffect(() => {
+    isNearBottom.current = true;
+    setShowJump(false);
+  }, [activeSessionId]);
 
   useEffect(() => {
     if (!activeSessionId) return;
