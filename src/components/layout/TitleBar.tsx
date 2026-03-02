@@ -3,12 +3,14 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { Minus, Square, X } from 'lucide-react';
 import { ConnectionStatus } from '../connection/ConnectionStatus';
 import { useSettingsStore } from '../../store/settingsStore';
+import { useUpdateCheck } from '../../hooks/useUpdateCheck';
 import { isMacOS } from '../../lib/platform';
 
 export function TitleBar() {
   const appWindow = getCurrentWindow();
   const closeToTray = useSettingsStore((s) => s.closeToTray);
   const minimizeToTray = useSettingsStore((s) => s.minimizeToTray);
+  const update = useUpdateCheck();
 
   return (
     <div
@@ -48,16 +50,32 @@ export function TitleBar() {
         </span>
         <ConnectionStatus />
         <span
-          onClick={() => openUrl('https://github.com/emaspa/deskclaw')}
+          onClick={() => openUrl(update ? update.release_url : 'https://github.com/emaspa/deskclaw')}
           style={{
             fontSize: 'var(--font-xs)',
-            color: 'var(--text-muted)',
+            color: update ? 'var(--accent-success)' : 'var(--text-muted)',
             cursor: 'pointer',
             transition: 'color 0.15s',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-        >v0.1.8</span>
+          onMouseLeave={(e) => { e.currentTarget.style.color = update ? 'var(--accent-success)' : 'var(--text-muted)'; }}
+          title={update ? `${update.latest_version} available — click to download` : 'View on GitHub'}
+        >
+          v0.1.9
+          {update && (
+            <span style={{
+              display: 'inline-block',
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--accent-success)',
+              boxShadow: '0 0 6px var(--accent-success)',
+            }} />
+          )}
+        </span>
       </div>
 
       {/* Window controls — only on non-macOS (macOS uses native traffic lights) */}

@@ -8,6 +8,7 @@ import { AccountSelector } from './AccountSelector';
 import { GlassPanel } from '../ui/GlassPanel';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { useSettingsStore } from '../../store/settingsStore';
+import { useUpdateCheck } from '../../hooks/useUpdateCheck';
 import { setCloseToTray } from '../../lib/tauri';
 import { isMacOS } from '../../lib/platform';
 
@@ -17,6 +18,7 @@ export function ConnectionScreen() {
   const closeToTray = useSettingsStore((s) => s.closeToTray);
   const minimizeToTray = useSettingsStore((s) => s.minimizeToTray);
   const [showSettings, setShowSettings] = useState(false);
+  const update = useUpdateCheck();
 
   // Sync close-to-tray setting to Rust backend on mount and when it changes
   useEffect(() => {
@@ -278,15 +280,25 @@ export function ConnectionScreen() {
         </button>
       </div>
       <div
+        onClick={() => update && openUrl(update.release_url)}
         style={{
           position: 'fixed',
           bottom: '10px',
           right: '14px',
           fontSize: 'var(--font-md)',
-          color: 'var(--text-muted)',
+          color: update ? 'var(--accent-success)' : 'var(--text-muted)',
+          cursor: update ? 'pointer' : 'default',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
         }}
       >
-        v0.1.8
+        v0.1.9
+        {update && (
+          <span style={{ fontSize: 'var(--font-xs)', fontWeight: 500 }}>
+            ({update.latest_version} available)
+          </span>
+        )}
       </div>
 
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}

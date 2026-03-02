@@ -19,14 +19,19 @@ interface SettingsState {
   minimizeToTray: boolean;
   autoLogin: boolean;
   lastAccountId: string | null;
+  checkForUpdates: boolean;
+  lastUpdateCheck: number;
+  dismissedVersion: string | null;
 
   // Form actions
   setField: <K extends keyof SettingsState>(field: K, value: SettingsState[K]) => void;
   reset: () => void;
 
   // App setting actions
-  setAppSetting: <K extends 'closeToTray' | 'minimizeToTray' | 'autoLogin'>(key: K, value: SettingsState[K]) => void;
+  setAppSetting: <K extends 'closeToTray' | 'minimizeToTray' | 'autoLogin' | 'checkForUpdates'>(key: K, value: SettingsState[K]) => void;
   setLastAccountId: (id: string | null) => void;
+  setUpdateCheck: (timestamp: number) => void;
+  dismissUpdate: (version: string) => void;
 
   // Account CRUD
   addAccount: (account: SavedAccount) => void;
@@ -60,12 +65,17 @@ export const useSettingsStore = create<SettingsState>()(
       minimizeToTray: false,
       autoLogin: false,
       lastAccountId: null,
+      checkForUpdates: true,
+      lastUpdateCheck: 0,
+      dismissedVersion: null,
 
       setField: (field, value) => set({ [field]: value } as Partial<SettingsState>),
       reset: () => set({ ...formDefaults, activeAccountId: null }),
 
       setAppSetting: (key, value) => set({ [key]: value } as Partial<SettingsState>),
       setLastAccountId: (id) => set({ lastAccountId: id }),
+      setUpdateCheck: (timestamp) => set({ lastUpdateCheck: timestamp }),
+      dismissUpdate: (version) => set({ dismissedVersion: version }),
 
       addAccount: (account) =>
         set((s) => ({ accounts: [...s.accounts, account] })),
@@ -111,7 +121,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'deskclaw-settings',
-      version: 2,
+      version: 3,
       migrate: (persisted: unknown, version: number) => {
         const old = persisted as Record<string, unknown>;
         if (version === 0 || !version) {
@@ -136,6 +146,17 @@ export const useSettingsStore = create<SettingsState>()(
             minimizeToTray: false,
             autoLogin: false,
             lastAccountId: null,
+            checkForUpdates: true,
+            lastUpdateCheck: 0,
+            dismissedVersion: null,
+          };
+        }
+        if (version === 2) {
+          return {
+            ...old,
+            checkForUpdates: true,
+            lastUpdateCheck: 0,
+            dismissedVersion: null,
           };
         }
         return persisted as SettingsState;

@@ -91,6 +91,17 @@ export async function setCloseToTray(enabled: boolean): Promise<void> {
   return invoke('set_close_to_tray', { enabled });
 }
 
+export interface UpdateInfo {
+  update_available: boolean;
+  latest_version: string;
+  current_version: string;
+  release_url: string;
+}
+
+export async function checkForUpdates(): Promise<UpdateInfo> {
+  return invoke('check_for_updates');
+}
+
 export function hideWindow(): void {
   getCurrentWindow().hide();
 }

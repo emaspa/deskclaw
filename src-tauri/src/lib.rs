@@ -98,6 +98,7 @@ pub fn run() {
             commands::settings::set_close_to_tray,
             commands::crypto::encrypt_string,
             commands::crypto::decrypt_string,
+            commands::updates::check_for_updates,
         ])
         .run(tauri::generate_context!())
         .expect("error while running deskclaw");

@@ -63,6 +63,12 @@ export function SettingsForm({ onClose }: SettingsFormProps) {
             checked={settings.autoLogin}
             onChange={(v) => settings.setAppSetting('autoLogin', v)}
           />
+          <Toggle
+            label="Check for updates"
+            description="Notify when a new version is available"
+            checked={settings.checkForUpdates}
+            onChange={(v) => settings.setAppSetting('checkForUpdates', v)}
+          />
         </div>
       </div>
 
