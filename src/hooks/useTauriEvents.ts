@@ -30,6 +30,7 @@ export function useTauriEvents() {
   const addMessage = useChatStore((s) => s.addMessage);
   const addRun = useChatStore((s) => s.addRun);
   const removeRun = useChatStore((s) => s.removeRun);
+  const setAgentPhase = useChatStore((s) => s.setAgentPhase);
   const updateSession = useSessionStore((s) => s.updateSession);
 
   useEffect(() => {
@@ -132,9 +133,11 @@ export function useTauriEvents() {
           if (!runId) return;
           if (phase === 'start') {
             addRun(sessionId, runId);
+            setAgentPhase(sessionId, 'thinking');
           } else if (phase === 'end' || phase === 'error') {
             removeRun(sessionId, runId);
-            // Refresh token counts only — don't overwrite model (it may not be updated server-side yet)
+            setAgentPhase(sessionId, null);
+            // Refresh token counts on end/error
             listSessions().then((sessions: SessionInfo[]) => {
               const match = sessions.find((s) => s.id === sessionId || s.key === sessionId);
               if (match) {
@@ -145,6 +148,15 @@ export function useTauriEvents() {
                 });
               }
             }).catch(() => {});
+          }
+        }
+
+        // Compaction events: stream "compaction" with phase "start" / "end"
+        if (stream === 'compaction') {
+          if (phase === 'start') {
+            setAgentPhase(sessionId, 'compacting');
+          } else if (phase === 'end') {
+            setAgentPhase(sessionId, useChatStore.getState().isTyping(sessionId) ? 'thinking' : null);
           }
         }
 
@@ -177,5 +189,5 @@ export function useTauriEvents() {
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [setPhase, addMessage, addRun, removeRun, updateSession]);
+  }, [setPhase, addMessage, addRun, removeRun, setAgentPhase, updateSession]);
 }

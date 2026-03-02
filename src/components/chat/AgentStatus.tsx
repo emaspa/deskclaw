@@ -1,11 +1,21 @@
 import { useSessionStore } from '../../store/sessionStore';
 import { useChatStore } from '../../store/chatStore';
 
+const phaseLabels: Record<string, string> = {
+  thinking: 'is thinking',
+  compacting: 'is compacting conversation',
+  summarizing: 'is summarizing',
+  processing: 'is processing',
+};
+
 export function AgentStatus() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const agentIdentity = useSessionStore((s) => s.agentIdentity);
   const activeRuns = useChatStore((s) =>
     activeSessionId ? s.activeRuns[activeSessionId] : undefined
+  );
+  const phase = useChatStore((s) =>
+    activeSessionId ? s.agentPhase[activeSessionId] : null
   );
   const isTyping = !!activeRuns && activeRuns.size > 0;
 
@@ -13,6 +23,7 @@ export function AgentStatus() {
 
   const name = agentIdentity?.name || 'Assistant';
   const emoji = agentIdentity?.emoji;
+  const label = phaseLabels[phase || 'thinking'] || `is ${phase}`;
 
   return (
     <div
@@ -30,7 +41,7 @@ export function AgentStatus() {
         <span style={dotStyle(1)} />
         <span style={dotStyle(2)} />
       </span>
-      <span>{emoji ? `${emoji} ` : ''}{name} is thinking...</span>
+      <span>{emoji ? `${emoji} ` : ''}{name} {label}...</span>
     </div>
   );
 }

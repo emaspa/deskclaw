@@ -92,12 +92,12 @@ export function MessageList() {
   }
 
   return (
-    <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+    <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div
         ref={containerRef}
         data-chat-scroll
         style={{
-          height: '100%',
+          flex: 1,
           overflowY: 'auto',
           padding: '16px 20px',
           display: 'flex',

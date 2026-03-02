@@ -10,6 +10,7 @@ export interface PendingMessage {
 interface ChatState {
   messages: Record<string, ChatMessage[]>;
   activeRuns: Record<string, Set<string>>;
+  agentPhase: Record<string, string | null>;
   pendingQueue: Record<string, PendingMessage[]>;
   scrollVersion: number;
   addMessage: (sessionId: string, message: ChatMessage) => void;
@@ -17,6 +18,7 @@ interface ChatState {
   setMessages: (sessionId: string, messages: ChatMessage[]) => void;
   addRun: (sessionId: string, runId: string) => void;
   removeRun: (sessionId: string, runId: string) => void;
+  setAgentPhase: (sessionId: string, phase: string | null) => void;
   isTyping: (sessionId: string) => boolean;
   addPending: (sessionId: string, msg: PendingMessage) => void;
   updatePending: (sessionId: string, msgId: string, content: string) => void;
@@ -29,6 +31,7 @@ interface ChatState {
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
   activeRuns: {},
+  agentPhase: {},
   pendingQueue: {},
   scrollVersion: 0,
   addMessage: (sessionId, message) =>
@@ -65,6 +68,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       runs.delete(runId);
       return { activeRuns: { ...state.activeRuns, [sessionId]: runs } };
     }),
+  setAgentPhase: (sessionId, phase) =>
+    set((state) => ({
+      agentPhase: { ...state.agentPhase, [sessionId]: phase },
+    })),
   isTyping: (sessionId) => {
     const runs = get().activeRuns[sessionId];
     return !!runs && runs.size > 0;
@@ -107,5 +114,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
       delete copy[sessionId];
       return { messages: copy };
     }),
-  clearAll: () => set({ messages: {}, activeRuns: {}, pendingQueue: {} }),
+  clearAll: () => set({ messages: {}, activeRuns: {}, agentPhase: {}, pendingQueue: {} }),
 }));
