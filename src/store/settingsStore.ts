@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { SavedAccount } from '../lib/types';
+import type { SavedAccount, LayoutPrefs } from '../lib/types';
 
 interface SettingsState {
   // Form fields (current connection form state)
@@ -36,6 +36,10 @@ interface SettingsState {
   // Account loading
   loadAccount: (id: string) => void;
   clearActiveAccount: () => void;
+
+  // Layout persistence per account
+  updateAccountLayout: (id: string, prefs: Partial<LayoutPrefs>) => void;
+  getActiveAccountLayout: () => LayoutPrefs | undefined;
 }
 
 const formDefaults = {
@@ -91,6 +95,19 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       clearActiveAccount: () => set({ ...formDefaults, activeAccountId: null }),
+
+      updateAccountLayout: (id, prefs) =>
+        set((s) => ({
+          accounts: s.accounts.map((a) =>
+            a.id === id ? { ...a, layoutPrefs: { ...a.layoutPrefs, ...prefs } } : a
+          ),
+        })),
+
+      getActiveAccountLayout: () => {
+        const { activeAccountId, accounts } = get();
+        if (!activeAccountId) return undefined;
+        return accounts.find((a) => a.id === activeAccountId)?.layoutPrefs;
+      },
     }),
     {
       name: 'deskclaw-settings',

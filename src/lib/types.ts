@@ -55,6 +55,14 @@ export interface Attachment {
   data: string; // base64
 }
 
+export interface LayoutPrefs {
+  windowWidth?: number;
+  windowHeight?: number;
+  windowX?: number;
+  windowY?: number;
+  sidebarCollapsed?: boolean;
+}
+
 export interface SavedAccount {
   id: string;
   name: string;
@@ -68,4 +76,5 @@ export interface SavedAccount {
   encryptedPassword?: string;
   encryptedToken?: string;
   encryptedKeyPassphrase?: string;
+  layoutPrefs?: LayoutPrefs;
 }
