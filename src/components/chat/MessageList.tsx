@@ -102,9 +102,6 @@ export function MessageList() {
           overflowY: 'auto',
           overflowX: 'hidden',
           padding: '16px 20px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
         }}
       >
         {loading && (
@@ -113,9 +110,11 @@ export function MessageList() {
           </div>
         )}
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+          <div key={msg.id} style={{ marginBottom: '8px' }}>
+            <MessageBubble message={msg} />
+          </div>
         ))}
-        <div ref={bottomRef} style={{ height: 24, flexShrink: 0 }} />
+        <div ref={bottomRef} style={{ height: 24 }} />
       </div>
 
       {showJump && (

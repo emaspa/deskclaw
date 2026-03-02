@@ -61,6 +61,7 @@ export interface LayoutPrefs {
   windowX?: number;
   windowY?: number;
   sidebarCollapsed?: boolean;
+  lastSessionKey?: string;
 }
 
 export interface SavedAccount {

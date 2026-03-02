@@ -6,14 +6,52 @@ import { Sidebar } from './Sidebar';
 import { ChatView } from '../chat/ChatView';
 import { useSessionStore } from '../../store/sessionStore';
 import { useSettingsStore } from '../../store/settingsStore';
+import { listSessions, getAgentIdentity } from '../../lib/tauri';
 
 export function AppShell() {
   const sessionCount = useSessionStore((s) => s.sessions.length);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activeAccountId = useSettingsStore((s) => s.activeAccountId);
   const updateAccountLayout = useSettingsStore((s) => s.updateAccountLayout);
   const layoutPrefs = useSettingsStore((s) => s.getActiveAccountLayout());
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(layoutPrefs?.sidebarCollapsed ?? false);
+
+  // Fetch sessions on mount (works even with collapsed sidebar)
+  useEffect(() => {
+    const fetchSessions = async () => {
+      try {
+        const [sessions] = await Promise.all([
+          listSessions(),
+          getAgentIdentity().then((identity) => {
+            useSessionStore.getState().setAgentIdentity({
+              name: (identity.name as string) || (identity.displayName as string) || 'Assistant',
+              persona: (identity.persona as string) || undefined,
+              emoji: (identity.emoji as string) || undefined,
+            });
+          }).catch(() => {}),
+        ]);
+        useSessionStore.getState().setSessions(sessions);
+        // Auto-select last session from prefs, or fall back to first
+        const currentActive = useSessionStore.getState().activeSessionId;
+        if (!currentActive && sessions.length > 0) {
+          const savedKey = layoutPrefs?.lastSessionKey;
+          const match = savedKey && sessions.find((s) => s.key === savedKey);
+          useSessionStore.getState().setActiveSession(match ? savedKey! : sessions[0].key);
+        }
+      } catch (e) {
+        console.error('[deskclaw] initial session fetch error:', e);
+      }
+    };
+    fetchSessions();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Save active session key to account layout prefs when it changes
+  useEffect(() => {
+    if (activeAccountId && activeSessionId) {
+      updateAccountLayout(activeAccountId, { lastSessionKey: activeSessionId });
+    }
+  }, [activeSessionId, activeAccountId, updateAccountLayout]);
 
   // Restore window size/position from account layout prefs on mount
   useEffect(() => {

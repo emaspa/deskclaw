@@ -57,7 +57,7 @@ export function TitleBar() {
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-        >v0.1.6</span>
+        >v0.1.7</span>
       </div>
 
       {/* Window controls — only on non-macOS (macOS uses native traffic lights) */}

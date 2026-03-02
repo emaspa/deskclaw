@@ -54,6 +54,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })),
   setMessages: (sessionId, messages) =>
     set((state) => ({
+      scrollVersion: state.scrollVersion + 1,
       messages: { ...state.messages, [sessionId]: messages },
     })),
   addRun: (sessionId, runId) =>

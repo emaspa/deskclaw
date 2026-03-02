@@ -50,7 +50,8 @@ export function SessionList({ onCollapse }: SessionListProps) {
   };
 
   useEffect(() => {
-    fetchSessions();
+    // Only fetch if AppShell hasn't already loaded sessions
+    if (sessions.length === 0) fetchSessions();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
