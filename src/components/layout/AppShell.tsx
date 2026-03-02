@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { PhysicalSize, PhysicalPosition } from '@tauri-apps/api/dpi';
+import { useCallback, useEffect, useState } from 'react';
 import { TitleBar } from './TitleBar';
 import { Sidebar } from './Sidebar';
 import { ChatView } from '../chat/ChatView';
@@ -53,19 +51,6 @@ export function AppShell() {
     }
   }, [activeSessionId, activeAccountId, updateAccountLayout]);
 
-  // Restore window size/position from account layout prefs on mount
-  useEffect(() => {
-    if (!layoutPrefs) return;
-    const w = getCurrentWindow();
-    const { windowWidth, windowHeight, windowX, windowY } = layoutPrefs;
-    if (windowWidth && windowHeight) {
-      w.setSize(new PhysicalSize(windowWidth, windowHeight)).catch(() => {});
-    }
-    if (windowX != null && windowY != null) {
-      w.setPosition(new PhysicalPosition(windowX, windowY)).catch(() => {});
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => {
     console.log('[deskclaw] AppShell mounted, sessions:', sessionCount);
   }, [sessionCount]);
@@ -77,45 +62,6 @@ export function AppShell() {
       if (activeAccountId) updateAccountLayout(activeAccountId, { sidebarCollapsed: next });
       return next;
     });
-  }, [activeAccountId, updateAccountLayout]);
-
-  // Track window resize/move and save to account (debounced)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => {
-    if (!activeAccountId) return;
-    const w = getCurrentWindow();
-    let unlisten: (() => void) | undefined;
-
-    const saveWindowState = async () => {
-      try {
-        const size = await w.innerSize();
-        const pos = await w.outerPosition();
-        updateAccountLayout(activeAccountId, {
-          windowWidth: size.width,
-          windowHeight: size.height,
-          windowX: pos.x,
-          windowY: pos.y,
-        });
-      } catch { /* window may be closing */ }
-    };
-
-    const debouncedSave = () => {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(saveWindowState, 500);
-    };
-
-    // Listen for both resize and move events
-    Promise.all([
-      w.onResized(debouncedSave),
-      w.onMoved(debouncedSave),
-    ]).then(([unlistenResize, unlistenMove]) => {
-      unlisten = () => { unlistenResize(); unlistenMove(); };
-    });
-
-    return () => {
-      clearTimeout(saveTimerRef.current);
-      unlisten?.();
-    };
   }, [activeAccountId, updateAccountLayout]);
 
   return (

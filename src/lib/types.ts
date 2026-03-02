@@ -56,10 +56,6 @@ export interface Attachment {
 }
 
 export interface LayoutPrefs {
-  windowWidth?: number;
-  windowHeight?: number;
-  windowX?: number;
-  windowY?: number;
   sidebarCollapsed?: boolean;
   lastSessionKey?: string;
 }
