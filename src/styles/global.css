@@ -147,6 +147,8 @@ body {
 /* Markdown body inside message bubbles */
 .markdown-body {
   line-height: 1.6;
+  overflow: hidden;
+  min-width: 0;
 }
 .markdown-body p {
   margin: 0 0 0.5em 0;

@@ -99,6 +99,7 @@ export function MessageList() {
         style={{
           flex: 1,
           overflowY: 'auto',
+          overflowX: 'hidden',
           padding: '16px 20px',
           display: 'flex',
           flexDirection: 'column',

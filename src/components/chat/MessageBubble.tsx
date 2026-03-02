@@ -290,7 +290,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: isUser ? 'flex-end' : 'flex-start', minWidth: 0 }}>
           {agentLabel && (
             <span
               style={{
@@ -322,6 +322,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               fontSize: 'var(--font-base)',
               lineHeight: 1.6,
               wordBreak: 'break-word',
+              overflow: 'hidden',
             }}
           >
             <MessageContent content={message.content} />
