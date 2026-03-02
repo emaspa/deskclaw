@@ -39,7 +39,7 @@ export function ConnectionScreen() {
           alignItems: 'center',
           justifyContent: 'flex-end',
           padding: '0 12px',
-          paddingLeft: isMacOS ? '78px' : '12px',
+          paddingLeft: isMacOS ? '70px' : '12px',
           height: '38px',
           userSelect: 'none',
           flexShrink: 0,
@@ -286,7 +286,7 @@ export function ConnectionScreen() {
           color: 'var(--text-muted)',
         }}
       >
-        v0.1.2
+        v0.1.3
       </div>
 
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}

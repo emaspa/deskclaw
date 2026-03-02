@@ -20,7 +20,7 @@ export function TitleBar() {
         justifyContent: 'space-between',
         padding: '0 12px',
         // On macOS, add left padding for native traffic light buttons
-        paddingLeft: isMacOS ? '78px' : '12px',
+        paddingLeft: isMacOS ? '70px' : '12px',
         background: 'var(--bg-surface)',
         borderBottom: '1px solid var(--glass-border)',
         height: '38px',
@@ -57,7 +57,7 @@ export function TitleBar() {
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-        >v0.1.2</span>
+        >v0.1.3</span>
       </div>
 
       {/* Window controls — only on non-macOS (macOS uses native traffic lights) */}
