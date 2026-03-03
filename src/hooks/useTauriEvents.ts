@@ -214,11 +214,15 @@ export function useTauriEvents() {
       unlisteners.push(u4);
 
       // Bring window to foreground when user clicks a notification
-      const u5 = await onAction(() => {
-        const win = getCurrentWindow();
-        win.unminimize();
-        win.show();
-        win.setFocus();
+      const u5 = await onAction(async () => {
+        try {
+          const win = getCurrentWindow();
+          await win.unminimize();
+          await win.show();
+          await win.setFocus();
+        } catch (err) {
+          console.warn('[deskclaw] notification action focus failed:', err);
+        }
       });
       if (cancelled) { u5.unregister(); return; }
       unlisteners.push(() => u5.unregister());
