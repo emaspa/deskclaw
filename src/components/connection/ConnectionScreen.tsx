@@ -300,7 +300,7 @@ export function ConnectionScreen() {
           gap: '6px',
         }}
       >
-        v0.2.1
+        v0.2.2
         {update && (
           <span style={{ fontSize: 'var(--font-xs)', fontWeight: 500 }}>
             ({update.latest_version} available)

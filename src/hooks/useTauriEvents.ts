@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
 import { useConnectionStore } from '../store/connectionStore';
 import { useChatStore } from '../store/chatStore';
 import { useSessionStore } from '../store/sessionStore';
@@ -213,6 +213,16 @@ export function useTauriEvents() {
       });
       if (cancelled) { u4(); return; }
       unlisteners.push(u4);
+
+      // Bring window to foreground when user clicks a notification
+      const u5 = await onAction(() => {
+        const win = getCurrentWindow();
+        win.unminimize();
+        win.show();
+        win.setFocus();
+      });
+      if (cancelled) { u5.unregister(); return; }
+      unlisteners.push(() => u5.unregister());
     })();
 
     return () => {
