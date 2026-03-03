@@ -10,7 +10,7 @@ export function TitleBar() {
   const appWindow = getCurrentWindow();
   const closeToTray = useSettingsStore((s) => s.closeToTray);
   const minimizeToTray = useSettingsStore((s) => s.minimizeToTray);
-  const update = useUpdateCheck();
+  const { update, recheck } = useUpdateCheck();
 
   return (
     <div
@@ -50,7 +50,14 @@ export function TitleBar() {
         </span>
         <ConnectionStatus />
         <span
-          onClick={() => openUrl(update ? update.release_url : 'https://github.com/emaspa/deskclaw')}
+          onClick={async () => {
+            if (update) {
+              openUrl(update.release_url);
+            } else {
+              const found = await recheck();
+              openUrl(found ? found.release_url : 'https://github.com/emaspa/deskclaw/releases/latest');
+            }
+          }}
           style={{
             fontSize: 'var(--font-xs)',
             color: update ? 'var(--accent-success)' : 'var(--text-muted)',
@@ -64,7 +71,7 @@ export function TitleBar() {
           onMouseLeave={(e) => { e.currentTarget.style.color = update ? 'var(--accent-success)' : 'var(--text-muted)'; }}
           title={update ? `${update.latest_version} available — click to download` : 'View on GitHub'}
         >
-          v0.2.0
+          v0.2.1
           {update && (
             <span style={{
               display: 'inline-block',

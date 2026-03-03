@@ -18,7 +18,7 @@ export function ConnectionScreen() {
   const closeToTray = useSettingsStore((s) => s.closeToTray);
   const minimizeToTray = useSettingsStore((s) => s.minimizeToTray);
   const [showSettings, setShowSettings] = useState(false);
-  const update = useUpdateCheck();
+  const { update, recheck } = useUpdateCheck();
 
   // Sync close-to-tray setting to Rust backend on mount and when it changes
   useEffect(() => {
@@ -280,20 +280,27 @@ export function ConnectionScreen() {
         </button>
       </div>
       <div
-        onClick={() => update && openUrl(update.release_url)}
+        onClick={async () => {
+          if (update) {
+            openUrl(update.release_url);
+          } else {
+            const found = await recheck();
+            openUrl(found ? found.release_url : 'https://github.com/emaspa/deskclaw/releases/latest');
+          }
+        }}
         style={{
           position: 'fixed',
           bottom: '10px',
           right: '14px',
           fontSize: 'var(--font-md)',
           color: update ? 'var(--accent-success)' : 'var(--text-muted)',
-          cursor: update ? 'pointer' : 'default',
+          cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
         }}
       >
-        v0.2.0
+        v0.2.1
         {update && (
           <span style={{ fontSize: 'var(--font-xs)', fontWeight: 500 }}>
             ({update.latest_version} available)

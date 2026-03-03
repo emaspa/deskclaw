@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { checkForUpdates, type UpdateInfo } from '../lib/tauri';
 import { useSettingsStore } from '../store/settingsStore';
 
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-export function useUpdateCheck(): UpdateInfo | null {
+export function useUpdateCheck() {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const enabled = useSettingsStore((s) => s.checkForUpdates);
   const lastCheck = useSettingsStore((s) => s.lastUpdateCheck);
@@ -29,6 +29,20 @@ export function useUpdateCheck(): UpdateInfo | null {
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (update && dismissedVersion === update.latest_version) return null;
-  return update;
+  const recheck = useCallback(async (): Promise<UpdateInfo | null> => {
+    try {
+      const info = await checkForUpdates();
+      setUpdateCheck(Date.now());
+      if (info.update_available) {
+        setUpdate(info);
+        return info;
+      }
+    } catch (err) {
+      console.warn('[deskclaw] update check failed:', err);
+    }
+    return null;
+  }, [setUpdateCheck]);
+
+  const resolved = update && dismissedVersion === update.latest_version ? null : update;
+  return { update: resolved, recheck };
 }
