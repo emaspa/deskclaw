@@ -28,7 +28,7 @@ function extractContent(raw: unknown): string {
   return '';
 }
 
-async function maybeNotify(sessionId: string, content: string) {
+async function maybeNotify(content: string) {
   try {
     if (!useSettingsStore.getState().notifyOnMessage) return;
     if (await getCurrentWindow().isFocused()) return;
@@ -40,9 +40,8 @@ async function maybeNotify(sessionId: string, content: string) {
     }
     if (!permitted) return;
 
-    const sessions = useSessionStore.getState().sessions;
-    const session = sessions.find((s) => s.id === sessionId || s.key === sessionId);
-    const title = session?.display_name || 'DeskClaw';
+    const { agentIdentity } = useSessionStore.getState();
+    const title = agentIdentity?.name || 'DeskClaw';
     const body = content.length > 200 ? content.slice(0, 200) + '...' : content;
 
     sendNotification({ title, body });
@@ -134,7 +133,7 @@ export function useTauriEvents() {
         });
 
         if (role === 'assistant' && state !== 'error') {
-          maybeNotify(sessionId, content);
+          maybeNotify(content);
         }
 
         // Error state means the run is done — clear typing indicator
