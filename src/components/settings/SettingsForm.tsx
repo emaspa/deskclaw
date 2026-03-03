@@ -69,6 +69,12 @@ export function SettingsForm({ onClose }: SettingsFormProps) {
             checked={settings.checkForUpdates}
             onChange={(v) => settings.setAppSetting('checkForUpdates', v)}
           />
+          <Toggle
+            label="Notifications"
+            description="Show OS notifications for new messages when app is not focused"
+            checked={settings.notifyOnMessage}
+            onChange={(v) => settings.setAppSetting('notifyOnMessage', v)}
+          />
         </div>
       </div>
 

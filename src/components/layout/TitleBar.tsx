@@ -64,7 +64,7 @@ export function TitleBar() {
           onMouseLeave={(e) => { e.currentTarget.style.color = update ? 'var(--accent-success)' : 'var(--text-muted)'; }}
           title={update ? `${update.latest_version} available — click to download` : 'View on GitHub'}
         >
-          v0.1.9
+          v0.2.0
           {update && (
             <span style={{
               display: 'inline-block',

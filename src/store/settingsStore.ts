@@ -20,6 +20,7 @@ interface SettingsState {
   autoLogin: boolean;
   lastAccountId: string | null;
   checkForUpdates: boolean;
+  notifyOnMessage: boolean;
   lastUpdateCheck: number;
   dismissedVersion: string | null;
 
@@ -28,7 +29,7 @@ interface SettingsState {
   reset: () => void;
 
   // App setting actions
-  setAppSetting: <K extends 'closeToTray' | 'minimizeToTray' | 'autoLogin' | 'checkForUpdates'>(key: K, value: SettingsState[K]) => void;
+  setAppSetting: <K extends 'closeToTray' | 'minimizeToTray' | 'autoLogin' | 'checkForUpdates' | 'notifyOnMessage'>(key: K, value: SettingsState[K]) => void;
   setLastAccountId: (id: string | null) => void;
   setUpdateCheck: (timestamp: number) => void;
   dismissUpdate: (version: string) => void;
@@ -66,6 +67,7 @@ export const useSettingsStore = create<SettingsState>()(
       autoLogin: false,
       lastAccountId: null,
       checkForUpdates: true,
+      notifyOnMessage: true,
       lastUpdateCheck: 0,
       dismissedVersion: null,
 
@@ -121,7 +123,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'deskclaw-settings',
-      version: 3,
+      version: 4,
       migrate: (persisted: unknown, version: number) => {
         const old = persisted as Record<string, unknown>;
         if (version === 0 || !version) {
@@ -157,6 +159,13 @@ export const useSettingsStore = create<SettingsState>()(
             checkForUpdates: true,
             lastUpdateCheck: 0,
             dismissedVersion: null,
+            notifyOnMessage: true,
+          };
+        }
+        if (version === 3) {
+          return {
+            ...old,
+            notifyOnMessage: true,
           };
         }
         return persisted as SettingsState;

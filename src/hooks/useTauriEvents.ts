@@ -1,8 +1,11 @@
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { useConnectionStore } from '../store/connectionStore';
 import { useChatStore } from '../store/chatStore';
 import { useSessionStore } from '../store/sessionStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { sendMessage, listSessions } from '../lib/tauri';
 import type { ConnectionPhase, SessionInfo } from '../lib/types';
 
@@ -23,6 +26,29 @@ function extractContent(raw: unknown): string {
       .join('\n');
   }
   return '';
+}
+
+async function maybeNotify(sessionId: string, content: string) {
+  try {
+    if (!useSettingsStore.getState().notifyOnMessage) return;
+    if (await getCurrentWindow().isFocused()) return;
+
+    let permitted = await isPermissionGranted();
+    if (!permitted) {
+      const result = await requestPermission();
+      permitted = result === 'granted';
+    }
+    if (!permitted) return;
+
+    const sessions = useSessionStore.getState().sessions;
+    const session = sessions.find((s) => s.id === sessionId || s.key === sessionId);
+    const title = session?.display_name || 'DeskClaw';
+    const body = content.length > 200 ? content.slice(0, 200) + '...' : content;
+
+    sendNotification({ title, body });
+  } catch (err) {
+    console.warn('[deskclaw] notification failed:', err);
+  }
 }
 
 export function useTauriEvents() {
@@ -106,6 +132,10 @@ export function useTauriEvents() {
           session_id: sessionId,
           message_type: msgType || undefined,
         });
+
+        if (role === 'assistant' && state !== 'error') {
+          maybeNotify(sessionId, content);
+        }
 
         // Error state means the run is done — clear typing indicator
         if (state === 'error' && runId) {
