@@ -65,9 +65,9 @@ pub struct SessionEntry {
     pub key: String,
     #[serde(default)]
     pub kind: String,
-    #[serde(default)]
+    #[serde(default, alias = "modelId")]
     pub model: Option<String>,
-    #[serde(default, rename = "modelProvider")]
+    #[serde(default, rename = "modelProvider", alias = "provider")]
     pub model_provider: Option<String>,
     #[serde(default, rename = "displayName")]
     pub display_name: Option<String>,

@@ -5,6 +5,7 @@ import { SessionList } from '../sessions/SessionList';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { disconnectSsh } from '../../lib/tauri';
 import { useConnectionStore } from '../../store/connectionStore';
+import { useSettingsStore } from '../../store/settingsStore';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -16,6 +17,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const setPhase = useConnectionStore((s) => s.setPhase);
 
   const handleDisconnect = async () => {
+    // Clear lastAccountId so auto-login doesn't immediately reconnect
+    useSettingsStore.getState().setLastAccountId(null);
     try {
       await disconnectSsh();
     } catch {

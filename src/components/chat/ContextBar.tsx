@@ -80,7 +80,12 @@ export function ContextBar() {
     const qualifiedId = m.provider && m.provider !== 'default'
       ? `${m.provider}/${m.id}`
       : m.id;
-    return currentModelId === qualifiedId || currentModelId === m.id || currentModelId === m.name;
+    return currentModelId === qualifiedId
+      || currentModelId === m.id
+      || currentModelId === m.name
+      // Match when session stores "provider/id" but we compare to bare id, or vice versa
+      || currentModelId.endsWith(`/${m.id}`)
+      || qualifiedId.endsWith(`/${currentModelId}`);
   });
   const displayModelName = matchedModel?.name || model;
 
@@ -148,7 +153,7 @@ export function ContextBar() {
               const qualifiedId = m.provider && m.provider !== 'default'
                 ? `${m.provider}/${m.id}`
                 : m.id;
-              const isActive = currentModelId === qualifiedId || currentModelId === m.id || currentModelId === m.name;
+              const isActive = currentModelId === qualifiedId || currentModelId === m.id || currentModelId === m.name || currentModelId.endsWith(`/${m.id}`) || qualifiedId.endsWith(`/${currentModelId}`);
               return (
                 <button
                   key={m.id}
