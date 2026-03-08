@@ -4,7 +4,20 @@ use russh_keys::key;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
-pub struct SshClient;
+pub struct SshClient {
+    /// Optional expected server public key for verification.
+    /// If None, all keys are accepted (first-connect / TOFU).
+    /// If Some, the server key must match exactly.
+    expected_server_key: Option<key::PublicKey>,
+}
+
+impl SshClient {
+    pub fn new(expected_key: Option<key::PublicKey>) -> Self {
+        Self {
+            expected_server_key: expected_key,
+        }
+    }
+}
 
 #[async_trait]
 impl client::Handler for SshClient {
@@ -12,9 +25,29 @@ impl client::Handler for SshClient {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &key::PublicKey,
+        server_public_key: &key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        Ok(true)
+        match &self.expected_server_key {
+            Some(expected) => {
+                let matches = server_public_key == expected;
+                if !matches {
+                    log::warn!(
+                        "SSH server key mismatch! Expected {:?}, got {:?}",
+                        expected.name(),
+                        server_public_key.name()
+                    );
+                }
+                Ok(matches)
+            }
+            None => {
+                // TOFU (Trust On First Use): accept and log the key
+                log::info!(
+                    "Accepting SSH server key (TOFU): type={}",
+                    server_public_key.name()
+                );
+                Ok(true)
+            }
+        }
     }
 }
 
@@ -41,7 +74,7 @@ impl SshTunnel {
         remote_port: u16,
     ) -> Result<Self, crate::error::AppError> {
         let config = Arc::new(client::Config::default());
-        let ssh_client = SshClient;
+        let ssh_client = SshClient::new(None);
 
         let mut session = client::connect(config, (host, port), ssh_client)
             .await
@@ -70,7 +103,10 @@ impl SshTunnel {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(|e| crate::error::AppError::Ssh(e.to_string()))?;
-        let local_port = listener.local_addr().unwrap().port();
+        let local_port = listener
+            .local_addr()
+            .map_err(|e| crate::error::AppError::Ssh(format!("local_addr: {}", e)))?
+            .port();
 
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         let session = Arc::new(session);
@@ -171,10 +207,11 @@ impl SshTunnel {
             .await
             .map_err(|e| crate::error::AppError::Ssh(format!("open session: {}", e)))?;
 
-        // Use cat to write stdin to the file
+        // Use cat to write stdin to the file — shell-escape the path
+        let escaped = shell_escape(remote_path);
         let cmd = format!(
-            "mkdir -p \"$(dirname '{}')\" && cat > '{}'",
-            remote_path, remote_path
+            "mkdir -p \"$(dirname {})\" && cat > {}",
+            escaped, escaped
         );
         channel
             .exec(true, cmd.as_str())
@@ -217,7 +254,10 @@ impl SshTunnel {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(|e| crate::error::AppError::Ssh(e.to_string()))?;
-        let local_port = listener.local_addr().unwrap().port();
+        let local_port = listener
+            .local_addr()
+            .map_err(|e| crate::error::AppError::Ssh(format!("local_addr: {}", e)))?
+            .port();
         let session = self.session.clone();
         let rhost = remote_host.to_string();
 
@@ -267,4 +307,10 @@ impl SshTunnel {
             .map_err(|e| crate::error::AppError::Ssh(e.to_string()))?;
         Ok(())
     }
+}
+
+/// Safely escape a string for use in a POSIX shell command.
+/// Wraps in single quotes and escapes embedded single quotes.
+pub fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }

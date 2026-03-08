@@ -14,9 +14,8 @@ export function ContextBar() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const updateSession = useSessionStore((s) => s.updateSession);
   const session = useSessionStore((s) => {
-    const id = s.activeSessionId;
-    if (!id) return null;
-    return s.sessions.find((sess) => sess.id === id || sess.key === id) ?? null;
+    if (!s.activeSessionId) return null;
+    return s.findSession(s.activeSessionId) ?? null;
   });
 
   const [models, setModels] = useState<ModelInfo[]>([]);

@@ -1,6 +1,6 @@
 [package]
 name = "deskclaw"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 
 [lib]
@@ -38,5 +38,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 uuid = { version = "1", features = ["v4"] }
+zeroize = "1"
 log = "0.4"
 env_logger = "0.11"

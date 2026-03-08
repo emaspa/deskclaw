@@ -15,9 +15,15 @@ interface SessionState {
   setActiveSession: (id: string | null) => void;
   setAgentIdentity: (identity: AgentIdentity | null) => void;
   updateSession: (id: string, update: Partial<SessionInfo>) => void;
+  findSession: (id: string) => SessionInfo | undefined;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+/** Extract session ID from event payload — handles multiple field names from the gateway */
+export function extractSessionId(data: Record<string, unknown>): string {
+  return (data.sessionKey as string) || (data.sessionId as string) || (data.session_id as string) || (data.key as string) || '';
+}
+
+export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
   agentIdentity: null,
@@ -30,4 +36,8 @@ export const useSessionStore = create<SessionState>((set) => ({
         s.id === id || s.key === id ? { ...s, ...update } : s
       ),
     })),
+  findSession: (id) => {
+    const state = get();
+    return state.sessions.find((s) => s.id === id || s.key === id);
+  },
 }));

@@ -104,8 +104,13 @@ export function ConnectionForm() {
           label="SSH Port"
           type="number"
           placeholder="22"
+          min={1}
+          max={65535}
           value={settings.port}
-          onChange={(e) => settings.setField('port', Number(e.target.value))}
+          onChange={(e) => {
+            const val = Number(e.target.value);
+            if (val >= 0 && val <= 65535) settings.setField('port', val);
+          }}
         />
       </div>
 

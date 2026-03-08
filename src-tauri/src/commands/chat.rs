@@ -61,7 +61,7 @@ async fn upload_attachments_ssh(
 
         // Verify file was written correctly
         let size_check = ssh
-            .exec(&format!("stat -c%s '{}'", remote_path.replace('\'', "'\\''")))
+            .exec(&format!("stat -c%s {}", crate::ssh::tunnel::shell_escape(&remote_path)))
             .await
             .unwrap_or_default();
         let remote_size: usize = size_check.trim().parse().unwrap_or(0);
@@ -326,15 +326,25 @@ pub async fn download_remote_file(
     let tunnel = state.ssh_tunnel.lock().await;
     let ssh = tunnel.as_ref().ok_or("SSH not connected")?;
 
-    // Expand ~ to $HOME so it works inside single quotes
+    // Reject paths with traversal attempts
+    if path.contains("..") {
+        return Err("Path traversal not allowed".into());
+    }
+
+    // Expand ~ to $HOME so it works with shell_escape
     let resolved_path = if path.starts_with("~/") {
-        format!("$HOME/{}", &path[2..])
+        // Can't shell_escape $HOME expansion, so resolve it first
+        let home = ssh
+            .exec("echo $HOME")
+            .await
+            .map_err(|e| format!("Failed to get HOME: {}", e))?;
+        format!("{}/{}", home.trim(), &path[2..])
     } else {
         path.clone()
     };
 
     // Read file and base64-encode it on the server (avoids binary over SSH exec)
-    let cmd = format!("base64 -w0 \"{}\"", resolved_path.replace('"', "\\\""));
+    let cmd = format!("base64 -w0 {}", crate::ssh::tunnel::shell_escape(&resolved_path));
     let b64 = ssh
         .exec(&cmd)
         .await

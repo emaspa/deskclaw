@@ -50,10 +50,17 @@ impl GatewayConnection {
 
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
-        // Spawn the read loop
+        // Spawn the read loop with periodic heartbeat
         let pending_clone = pending_requests.clone();
+        let sink_clone = sink.clone();
         let app_clone = app_handle.clone();
         tokio::spawn(async move {
+            let mut heartbeat_interval = tokio::time::interval(
+                std::time::Duration::from_secs(30),
+            );
+            // First tick completes immediately — skip it
+            heartbeat_interval.tick().await;
+
             loop {
                 tokio::select! {
                     msg = stream.next() => {
@@ -65,11 +72,32 @@ impl GatewayConnection {
                                     &app_clone,
                                 ).await;
                             }
+                            Some(Ok(Message::Pong(_))) => {
+                                log::debug!("WebSocket pong received");
+                            }
                             Some(Ok(Message::Close(_))) | None => {
                                 let _ = app_clone.emit("connection-status", "disconnected");
                                 break;
                             }
+                            Some(Err(e)) => {
+                                log::error!("WebSocket read error: {}", e);
+                                let _ = app_clone.emit("connection-status", "disconnected");
+                                break;
+                            }
                             _ => {}
+                        }
+                    }
+                    _ = heartbeat_interval.tick() => {
+                        // Send WebSocket ping to detect dead connections
+                        let ping_result = sink_clone
+                            .lock()
+                            .await
+                            .send(Message::Ping(vec![].into()))
+                            .await;
+                        if let Err(e) = ping_result {
+                            log::warn!("WebSocket heartbeat ping failed: {}", e);
+                            let _ = app_clone.emit("connection-status", "disconnected");
+                            break;
                         }
                     }
                     _ = &mut shutdown_rx => {
@@ -96,7 +124,7 @@ impl GatewayConnection {
         let msg: crate::gateway::protocol::GatewayMessage = match serde_json::from_str(text) {
             Ok(m) => m,
             Err(e) => {
-                log::warn!("Failed to parse gateway message: {} — raw: {}", e, &text[..text.len().min(500)]);
+                log::warn!("Failed to parse gateway message: {} — raw: {}...", e, &text[..text.len().min(500)]);
                 return;
             }
         };
@@ -188,8 +216,9 @@ impl GatewayConnection {
             .await
             .map_err(|e| crate::error::AppError::Gateway(e.to_string()))?;
 
-        // Timeout after 60 seconds (attachments can make payloads large)
-        let result = tokio::time::timeout(std::time::Duration::from_secs(60), rx)
+        // Timeout after 30 seconds (use 60s for chat.send which may have large attachments)
+        let timeout_secs = if method == "chat.send" { 60 } else { 30 };
+        let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), rx)
             .await
             .map_err(|_| {
                 log::error!("RPC timeout: {} (id={})", method, id);

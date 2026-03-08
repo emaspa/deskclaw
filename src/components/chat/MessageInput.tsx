@@ -211,6 +211,8 @@ export function MessageInput() {
         {!isRecording && (
           <button
             onClick={() => fileInputRef.current?.click()}
+            aria-label="Attach file"
+            title="Attach file"
             style={{
               background: 'transparent',
               border: 'none',
@@ -224,7 +226,6 @@ export function MessageInput() {
             }}
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-            title="Attach file"
           >
             <Paperclip size={18} />
           </button>
@@ -264,6 +265,7 @@ export function MessageInput() {
           <button
             onClick={handleSend}
             disabled={!text.trim() && attachments.length === 0}
+            aria-label="Send message"
             style={{
               background: (text.trim() || attachments.length > 0) ? 'var(--accent-primary)' : 'transparent',
               border: 'none',

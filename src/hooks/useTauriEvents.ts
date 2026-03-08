@@ -1,10 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
 import { useConnectionStore } from '../store/connectionStore';
 import { useChatStore } from '../store/chatStore';
-import { useSessionStore } from '../store/sessionStore';
+import { useSessionStore, extractSessionId } from '../store/sessionStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { sendMessage, listSessions } from '../lib/tauri';
 import type { ConnectionPhase, SessionInfo } from '../lib/types';
@@ -50,6 +50,17 @@ async function maybeNotify(content: string) {
   }
 }
 
+// Debounce helper: returns a function that delays calling fn until after ms of inactivity
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
+  let timer: ReturnType<typeof setTimeout>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((...args: any[]) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  }) as unknown as T;
+}
+
 export function useTauriEvents() {
   const setPhase = useConnectionStore((s) => s.setPhase);
   const addMessage = useChatStore((s) => s.addMessage);
@@ -57,6 +68,22 @@ export function useTauriEvents() {
   const removeRun = useChatStore((s) => s.removeRun);
   const setAgentPhase = useChatStore((s) => s.setAgentPhase);
   const updateSession = useSessionStore((s) => s.updateSession);
+
+  // Debounce token refresh to avoid flooding after rapid agent runs
+  const debouncedRefreshRef = useRef(
+    debounce((sessionId: string) => {
+      listSessions().then((sessions: SessionInfo[]) => {
+        const match = sessions.find((s) => s.id === sessionId || s.key === sessionId);
+        if (match) {
+          useSessionStore.getState().updateSession(sessionId, {
+            total_tokens: match.total_tokens,
+            context_tokens: match.context_tokens,
+            context_window: match.context_window,
+          });
+        }
+      }).catch(() => {});
+    }, 2000)
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -73,7 +100,7 @@ export function useTauriEvents() {
         const data = event.payload;
         console.log('[deskclaw] new-message event:', JSON.stringify(data).slice(0, 1000));
 
-        const sessionId = (data.sessionKey as string) || (data.sessionId as string) || (data.session_id as string);
+        const sessionId = extractSessionId(data);
         const msg = data.message as Record<string, unknown> | undefined;
 
         if (!sessionId) {
@@ -147,7 +174,7 @@ export function useTauriEvents() {
       // Agent events: lifecycle for typing indicator + assistant stream for messages
       const u3 = await listen<Record<string, unknown>>('agent-update', (event) => {
         const data = event.payload;
-        const sessionId = (data.sessionKey as string) || (data.sessionId as string);
+        const sessionId = extractSessionId(data);
         const stream = data.stream as string | undefined;
         const runId = data.runId as string | undefined;
         const agentData = data.data as Record<string, unknown> | undefined;
@@ -166,17 +193,8 @@ export function useTauriEvents() {
           } else if (phase === 'end' || phase === 'error') {
             removeRun(sessionId, runId);
             setAgentPhase(sessionId, null);
-            // Refresh token counts on end/error
-            listSessions().then((sessions: SessionInfo[]) => {
-              const match = sessions.find((s) => s.id === sessionId || s.key === sessionId);
-              if (match) {
-                updateSession(sessionId, {
-                  total_tokens: match.total_tokens,
-                  context_tokens: match.context_tokens,
-                  context_window: match.context_window,
-                });
-              }
-            }).catch(() => {});
+            // Debounced token count refresh
+            debouncedRefreshRef.current(sessionId);
           }
         }
 
@@ -196,7 +214,7 @@ export function useTauriEvents() {
       // Session updates — keep token counts in sync
       const u4 = await listen<Record<string, unknown>>('session-update', (event) => {
         const data = event.payload;
-        const sessionId = (data.sessionKey as string) || (data.sessionId as string) || (data.key as string);
+        const sessionId = extractSessionId(data);
         if (!sessionId) return;
 
         const update: Record<string, unknown> = {};

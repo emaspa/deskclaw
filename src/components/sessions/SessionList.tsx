@@ -79,6 +79,8 @@ export function SessionList({ onCollapse }: SessionListProps) {
           <button
             onClick={fetchSessions}
             disabled={loading}
+            aria-label="Refresh sessions"
+            title="Refresh sessions"
             style={{
               background: 'transparent',
               border: 'none',

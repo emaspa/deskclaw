@@ -52,14 +52,14 @@ where
         .as_millis() as u64;
 
     let signing_payload = identity.build_signing_payload(token, &nonce, signed_at_ms);
-    log::info!("Signing payload: {}", signing_payload);
+    log::debug!("Signing payload length: {} bytes", signing_payload.len());
     let signature = identity.sign(signing_payload.as_bytes());
     let public_key = identity.public_key_base64url();
     let device_id = identity.device_id();
 
     log::info!("Device ID: {}", device_id);
-    log::info!("Public key (base64url): {}", public_key);
-    log::info!("Signature (base64url): {} ({} bytes encoded)", &signature[..20], signature.len());
+    log::debug!("Public key (base64url): {}...", &public_key[..public_key.len().min(12)]);
+    log::debug!("Signature: {} bytes", signature.len());
 
     // 3. Send connect request with proper structure
     let connect_req = GatewayMessage::Request {
@@ -93,7 +93,7 @@ where
     let req_text = serde_json::to_string(&connect_req)
         .map_err(|e| crate::error::AppError::Gateway(e.to_string()))?;
 
-    log::info!("Sending connect request: {}", req_text);
+    log::info!("Sending connect request (token redacted), {} bytes", req_text.len());
 
     ws_stream
         .send(Message::Text(req_text.into()))
@@ -113,7 +113,7 @@ where
         .to_text()
         .map_err(|e| crate::error::AppError::Gateway(e.to_string()))?;
 
-    log::info!("Connect response: {}", response_text);
+    log::info!("Connect response received, {} bytes", response_text.len());
 
     let response: GatewayMessage = serde_json::from_str(response_text)
         .map_err(|e| crate::error::AppError::Gateway(format!("Parse response: {}", e)))?;

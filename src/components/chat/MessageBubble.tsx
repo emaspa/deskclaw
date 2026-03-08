@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useMemo } from 'react';
 import { Bot, User, Terminal, Info, FileText } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -51,9 +51,10 @@ function formatTime(ts: string): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// Regex to detect .deskclaw/media/ paths or tunneled media URLs in message content
-const DESKCLAW_MEDIA_RE = /(\/[^\s]+\/\.deskclaw\/media\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|bmp|mp3|ogg|wav|m4a|mp4|pdf|doc|docx|txt))/gi;
-const MEDIA_URL_RE = /(https?:\/\/127\.0\.0\.1:\d+\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|bmp|mp3|ogg|wav|m4a|mp4|webm|pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|json|xml|zip|rar|7z))/gi;
+// Regex to detect .deskclaw/media/ paths or tunneled media URLs in message content.
+// Rejects paths containing ".." to prevent path traversal.
+const DESKCLAW_MEDIA_RE = /(\/(?:(?!\.\.)[\w.~/-])+\/\.deskclaw\/media\/[\w.-]+\.(?:jpg|jpeg|png|gif|webp|bmp|mp3|ogg|wav|m4a|mp4|pdf|doc|docx|txt))/gi;
+const MEDIA_URL_RE = /(https?:\/\/127\.0\.0\.1:\d+\/[\w.-]+\.(?:jpg|jpeg|png|gif|webp|bmp|mp3|ogg|wav|m4a|mp4|webm|pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|json|xml|zip|rar|7z))/gi;
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']);
 const AUDIO_EXTS = new Set(['mp3', 'ogg', 'wav', 'm4a', 'webm']);
@@ -197,9 +198,9 @@ function RemoteMediaFallback({ path }: { path: string }) {
 }
 
 /** Renders message text with inline media for any .deskclaw/media/ paths or tunneled URLs */
-function MessageContent({ content }: { content: string }) {
-  const { text, urls } = parseMediaRefs(content);
-  const parsed = text ? parseEmoticons(text) : '';
+const MessageContent = memo(function MessageContent({ content }: { content: string }) {
+  const { text, urls } = useMemo(() => parseMediaRefs(content), [content]);
+  const parsed = useMemo(() => (text ? parseEmoticons(text) : ''), [text]);
   return (
     <div>
       {parsed && (
@@ -214,7 +215,7 @@ function MessageContent({ content }: { content: string }) {
       )}
     </div>
   );
-}
+});
 
 /** Splits message content into text and media references (URLs or paths) */
 function parseMediaRefs(content: string): { text: string; urls: string[] } {
@@ -232,7 +233,7 @@ function parseMediaRefs(content: string): { text: string; urls: string[] } {
   return { text: text.trim(), urls };
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message }: MessageBubbleProps) {
   const config = roleConfig[message.role] || roleConfig.assistant;
   const Icon = config.icon;
   const isUser = message.role === 'user';
@@ -341,4 +342,4 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       </div>
     </div>
   );
-}
+});

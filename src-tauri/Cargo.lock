@@ -958,7 +958,7 @@ dependencies = [
 
 [[package]]
 name = "deskclaw"
-version = "0.1.9"
+version = "0.2.4"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -982,6 +982,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

@@ -14,6 +14,7 @@ export function MessageList() {
   const messages = activeSessionId ? (messagesMap[activeSessionId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES;
   const setMessages = useChatStore((s) => s.setMessages);
   const [loading, setLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,12 +47,15 @@ export function MessageList() {
 
     const fetchHistory = async () => {
       setLoading(true);
+      setHistoryError(null);
       try {
         const history = await getHistory(activeSessionId);
         console.log('[deskclaw] history for', activeSessionId, ':', history.length, 'messages');
         setMessages(activeSessionId, history);
       } catch (e) {
-        console.error('[deskclaw] history fetch error:', e);
+        const msg = typeof e === 'string' ? e : (e as Error).message || 'Failed to load history';
+        console.error('[deskclaw] history fetch error:', msg);
+        setHistoryError(msg);
       } finally {
         setLoading(false);
       }
@@ -115,6 +119,20 @@ export function MessageList() {
             <Spinner size={24} />
           </div>
         )}
+        {historyError && (
+          <div style={{
+            padding: '10px 14px',
+            margin: '8px 0',
+            background: 'rgba(255, 82, 82, 0.1)',
+            border: '1px solid rgba(255, 82, 82, 0.2)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--accent-danger)',
+            fontSize: 'var(--font-sm)',
+            textAlign: 'center',
+          }}>
+            Failed to load history: {historyError}
+          </div>
+        )}
         {messages.map((msg) => (
           <div key={msg.id} style={{ marginBottom: '8px' }}>
             <MessageBubble message={msg} />
@@ -126,6 +144,7 @@ export function MessageList() {
       {showJump && (
         <button
           onClick={jumpToBottom}
+          aria-label="Jump to latest messages"
           style={{
             position: 'absolute',
             bottom: '16px',
