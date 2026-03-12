@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Upload } from 'lucide-react';
+import { X, Upload, Trash2 } from 'lucide-react';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { ImageCropper } from '../ui/ImageCropper';
@@ -16,6 +16,7 @@ interface Props {
 export function AccountEditorDialog({ account, onClose }: Props) {
   const addAccount = useSettingsStore((s) => s.addAccount);
   const updateAccount = useSettingsStore((s) => s.updateAccount);
+  const deleteAccount = useSettingsStore((s) => s.deleteAccount);
 
   const [name, setName] = useState(account?.name || '');
   const [nickname, setNickname] = useState(account?.nickname || '');
@@ -31,6 +32,7 @@ export function AccountEditorDialog({ account, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [cropperSrc, setCropperSrc] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -121,20 +123,78 @@ export function AccountEditorDialog({ account, onClose }: Props) {
           <div style={{ fontSize: 'var(--font-lg)', fontWeight: 600, color: 'var(--text-primary)' }}>
             {account ? 'Edit Account' : 'New Account'}
           </div>
-          <button
-            onClick={onClose}
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {account && (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                aria-label="Delete account"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  transition: 'color 0.15s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-danger)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Delete confirmation */}
+        {confirmDelete && (
+          <div
             style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              padding: '4px',
+              padding: '10px 12px',
+              marginBottom: '16px',
+              background: 'rgba(255, 82, 82, 0.1)',
+              border: '1px solid rgba(255, 82, 82, 0.25)',
+              borderRadius: 'var(--radius-md)',
               display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
             }}
           >
-            <X size={18} />
-          </button>
-        </div>
+            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--accent-danger)' }}>
+              Delete this account?
+            </span>
+            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+              <Button variant="secondary" onClick={() => setConfirmDelete(false)} style={{ padding: '4px 10px', fontSize: 'var(--font-sm)' }}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => { deleteAccount(account!.id); onClose(); }}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 'var(--font-sm)',
+                  background: 'var(--accent-danger)',
+                  borderColor: 'var(--accent-danger)',
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {/* Avatar + Name row */}

@@ -42,6 +42,8 @@ Built with **Tauri v2** (Rust backend) and **React 19** (TypeScript frontend).
 - Auto-login to last used account
 
 **Desktop**
+- OS notifications for new messages
+- Automatic update checking with in-app prompts
 - System tray with show/hide and quit
 - Close-to-tray and minimize-to-tray options
 - Custom title bar with native macOS traffic light support
@@ -141,7 +143,12 @@ deskclaw/
 
 - Passwords, tokens, and key passphrases are encrypted at rest using **AES-256-GCM**
 - Encryption key is derived from a per-device identity (Ed25519 + SHA-256)
-- Credentials are only decrypted in memory when needed for connection
+- Credentials are only decrypted in memory and zeroized after use
+- SSH host key verification (Trust On First Use)
+- Shell injection prevention in all remote file operations
+- Content Security Policy enforced on the webview
+- Vault seed file restricted to owner-only permissions (Unix)
+- Sensitive tokens and keys redacted from application logs
 - SSH key authentication supported with optional passphrase
 
 ## License
