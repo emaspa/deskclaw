@@ -92,6 +92,7 @@ pub fn run() {
             commands::chat::send_message,
             commands::chat::get_history,
             commands::chat::inject_message,
+            commands::chat::cancel_run,
             commands::chat::set_model,
             commands::chat::download_remote_file,
             commands::settings::save_settings,

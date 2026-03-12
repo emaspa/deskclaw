@@ -59,6 +59,10 @@ export async function getHistory(
   return invoke('get_history', { sessionId, limit, before });
 }
 
+export async function cancelRun(sessionId: string, runId: string): Promise<unknown> {
+  return invoke('cancel_run', { sessionId, runId });
+}
+
 export async function injectMessage(
   sessionId: string,
   role: string,

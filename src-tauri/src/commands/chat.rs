@@ -358,6 +358,31 @@ pub async fn download_remote_file(
 }
 
 #[tauri::command]
+pub async fn cancel_run(
+    session_id: String,
+    run_id: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    log::info!("chat.cancel: sessionKey={}, runId={}", session_id, run_id);
+
+    let gateway = state.gateway.lock().await;
+    let gw = gateway.as_ref().ok_or("Not connected")?;
+
+    gw.rpc(
+        "chat.cancel",
+        serde_json::json!({
+            "sessionKey": session_id,
+            "runId": run_id,
+        }),
+    )
+    .await
+    .map_err(|e| {
+        log::error!("chat.cancel RPC error: {}", e);
+        e.to_string()
+    })
+}
+
+#[tauri::command]
 pub async fn inject_message(
     session_id: String,
     role: String,

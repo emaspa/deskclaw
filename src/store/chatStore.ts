@@ -18,6 +18,7 @@ interface ChatState {
   setMessages: (sessionId: string, messages: ChatMessage[]) => void;
   addRun: (sessionId: string, runId: string) => void;
   removeRun: (sessionId: string, runId: string) => void;
+  clearRuns: (sessionId: string) => void;
   setAgentPhase: (sessionId: string, phase: string | null) => void;
   isTyping: (sessionId: string) => boolean;
   addPending: (sessionId: string, msg: PendingMessage) => void;
@@ -69,6 +70,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       runs.delete(runId);
       return { activeRuns: { ...state.activeRuns, [sessionId]: runs } };
     }),
+  clearRuns: (sessionId) =>
+    set((state) => ({
+      activeRuns: { ...state.activeRuns, [sessionId]: new Set() },
+      agentPhase: { ...state.agentPhase, [sessionId]: null },
+    })),
   setAgentPhase: (sessionId, phase) =>
     set((state) => ({
       agentPhase: { ...state.agentPhase, [sessionId]: phase },
