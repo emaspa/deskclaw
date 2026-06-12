@@ -348,3 +348,74 @@ pub async fn inject_message(
     .await
     .map_err(|e| e.to_string())
 }
+
+/// Transcribe a recorded voice clip: upload it to the gateway host over SSH
+/// and run `openclaw capability audio transcribe` there. Used on Linux, where
+/// the WebKitGTK webview has no native SpeechRecognition (Windows dictates
+/// in-webview via Chromium's speech API instead).
+#[tauri::command]
+pub async fn transcribe_audio(
+    audio_b64: String,
+    ext: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    use crate::ssh::tunnel::shell_escape;
+
+    let ext = match ext.as_str() {
+        "ogg" | "webm" | "wav" | "mp4" => ext,
+        _ => "ogg".to_string(),
+    };
+    if audio_b64.is_empty() {
+        return Err("empty recording".into());
+    }
+
+    let tunnel = state.ssh_tunnel.lock().await;
+    let ssh = tunnel.as_ref().ok_or("SSH not connected")?;
+
+    let remote = format!("/tmp/deskclaw-voice-{}.{}", uuid::Uuid::new_v4(), ext);
+
+    // Upload in chunks: each exec decodes a base64 slice and appends, keeping
+    // every command line well under sshd's limits even for long recordings.
+    let mut first = true;
+    for chunk in audio_b64.as_bytes().chunks(192 * 1024) {
+        let part = std::str::from_utf8(chunk).map_err(|e| e.to_string())?;
+        let redirect = if first { ">" } else { ">>" };
+        first = false;
+        let cmd = format!(
+            "printf %s {} | base64 -d {} {}",
+            shell_escape(part),
+            redirect,
+            shell_escape(&remote)
+        );
+        ssh.exec(&cmd).await.map_err(|e| format!("upload failed: {}", e))?;
+    }
+
+    // bash -lc so npm-global installs of the openclaw CLI are on PATH.
+    let inner = format!(
+        "openclaw capability audio transcribe --file {} --json",
+        shell_escape(&remote)
+    );
+    let result = ssh.exec(&format!("bash -lc {}", shell_escape(&inner))).await;
+    let _ = ssh.exec(&format!("rm -f {}", shell_escape(&remote))).await;
+    let out = result.map_err(|e| format!("transcribe failed: {}", e))?;
+
+    // Output is a JSON envelope: { ok, outputs: [{ text, ... }] }. Tolerate
+    // leading log lines by parsing from the first '{'.
+    let err_snippet = || {
+        let snippet: String = out.chars().take(300).collect();
+        format!("transcription failed: {}", snippet)
+    };
+    let json_start = out.find('{').ok_or_else(err_snippet)?;
+    let v: serde_json::Value =
+        serde_json::from_str(&out[json_start..]).map_err(|_| err_snippet())?;
+    if !v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {
+        return Err(err_snippet());
+    }
+    v.get("outputs")
+        .and_then(|o| o.as_array())
+        .and_then(|a| a.first())
+        .and_then(|o| o.get("text"))
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "transcription returned no text".to_string())
+}

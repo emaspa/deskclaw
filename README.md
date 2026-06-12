@@ -158,3 +158,36 @@ deskclaw/
 ## Support
 
 If you find DeskClaw useful, consider [buying me a coffee](https://buymeacoffee.com/emaspa).
+
+## Voice input on Linux
+
+Windows dictates in-webview via Chromium's speech API. Linux (WebKitGTK) has no
+built-in speech recognition, so DeskClaw records the microphone with
+MediaRecorder and transcribes on the gateway host via
+`openclaw capability audio transcribe` over the existing SSH connection.
+
+Requirements:
+
+- **Client:** GStreamer audio plugins for capture/encoding:
+  `sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-pulseaudio`
+- **Gateway host:** a configured OpenClaw transcription model, e.g. local
+  [whisper.cpp](https://github.com/ggml-org/whisper.cpp):
+
+```json
+{
+  "tools": {
+    "media": {
+      "audio": {
+        "enabled": true,
+        "models": [{
+          "type": "cli",
+          "command": "/path/to/whisper.cpp/build/bin/whisper-cli",
+          "args": ["-m", "/path/to/ggml-small.bin", "-ng", "-l", "auto",
+                   "-otxt", "-of", "{{OutputBase}}", "-f", "{{MediaPath}}"],
+          "timeoutSeconds": 120
+        }]
+      }
+    }
+  }
+}
+```

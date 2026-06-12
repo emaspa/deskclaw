@@ -32,6 +32,36 @@ pub fn run() {
                 }
             }
 
+            // On Linux, WebKitGTK denies microphone (getUserMedia) requests by
+            // default, which blocks voice input. Enable media streams and
+            // auto-allow user-media permission prompts (mic stays gated behind
+            // the user clicking the record button in the UI).
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.with_webview(|webview| {
+                        use webkit2gtk::{
+                            glib::Cast, PermissionRequestExt, SettingsExt,
+                            UserMediaPermissionRequest, WebViewExt,
+                        };
+                        let wv = webview.inner();
+                        if let Some(settings) = WebViewExt::settings(&wv) {
+                            settings.set_enable_media_stream(true);
+                        }
+                        wv.connect_permission_request(|_, request| {
+                            if let Ok(media_request) =
+                                request.clone().downcast::<UserMediaPermissionRequest>()
+                            {
+                                media_request.allow();
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                    });
+                }
+            }
+
             // System tray
             let show_item = MenuItemBuilder::with_id("show", "Show DeskClaw").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -98,6 +128,7 @@ pub fn run() {
             commands::chat::cancel_run,
             commands::chat::set_model,
             commands::chat::download_remote_file,
+            commands::chat::transcribe_audio,
             commands::session_ops::create_session,
             commands::session_ops::delete_session,
             commands::session_ops::reset_session,

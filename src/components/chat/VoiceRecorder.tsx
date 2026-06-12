@@ -1,9 +1,43 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square } from 'lucide-react';
+import { Mic, Square, Loader2 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 
 // Chromium SpeechRecognition (available in Tauri WebView2 on Windows)
 const SpeechRecognition = (window as unknown as Record<string, unknown>).SpeechRecognition
   || (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+
+// WebKitGTK (Linux) has no SpeechRecognition; fall back to recording with
+// MediaRecorder and transcribing on the gateway host (openclaw audio transcribe).
+const hasMediaRecorder =
+  typeof navigator !== 'undefined'
+  && !!navigator.mediaDevices?.getUserMedia
+  && typeof (window as unknown as Record<string, unknown>).MediaRecorder !== 'undefined';
+
+function pickMimeType(): { mime: string; ext: string } {
+  const candidates: Array<{ mime: string; ext: string }> = [
+    { mime: 'audio/ogg;codecs=opus', ext: 'ogg' },
+    { mime: 'audio/ogg', ext: 'ogg' },
+    { mime: 'audio/webm;codecs=opus', ext: 'webm' },
+    { mime: 'audio/webm', ext: 'webm' },
+    { mime: 'audio/mp4', ext: 'mp4' },
+  ];
+  for (const c of candidates) {
+    if (MediaRecorder.isTypeSupported(c.mime)) return c;
+  }
+  return { mime: '', ext: 'ogg' }; // let the browser pick its default container
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = reader.result as string;
+      resolve(url.slice(url.indexOf(',') + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
 
 interface Props {
   onTranscribed: (text: string) => void;
@@ -12,10 +46,14 @@ interface Props {
 
 export function VoiceRecorder({ onTranscribed, onRecordingChange }: Props) {
   const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [transcript, setTranscript] = useState('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaExtRef = useRef('ogg');
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const transcriptRef = useRef('');
 
@@ -25,12 +63,31 @@ export function VoiceRecorder({ onTranscribed, onRecordingChange }: Props) {
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch { /* ignore */ }
       }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try { mediaRecorderRef.current.stop(); } catch { /* ignore */ }
+      }
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
 
-  if (!SpeechRecognition) return null; // Browser doesn't support speech recognition
+  if (!SpeechRecognition && !hasMediaRecorder) return null; // No dictation path available
+
+  const startTimer = () => {
+    setSeconds(0);
+    timerRef.current = setInterval(() => {
+      setSeconds((s) => s + 1);
+    }, 1000);
+  };
 
   const startRecording = () => {
+    if (SpeechRecognition) {
+      startSpeechRecognition();
+    } else {
+      void startMediaRecording();
+    }
+  };
+
+  const startSpeechRecognition = () => {
     try {
       const recognition = new (SpeechRecognition as new () => SpeechRecognitionInstance)();
       recognition.continuous = true;
@@ -75,27 +132,80 @@ export function VoiceRecorder({ onTranscribed, onRecordingChange }: Props) {
       setTranscript('');
       setRecording(true);
       onRecordingChange?.(true);
-      setSeconds(0);
-
-      timerRef.current = setInterval(() => {
-        setSeconds((s) => s + 1);
-      }, 1000);
+      startTimer();
     } catch (err) {
       console.error('[deskclaw] speech recognition failed:', err);
     }
   };
 
+  const startMediaRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const { mime, ext } = pickMimeType();
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      mediaExtRef.current = ext;
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        mediaStreamRef.current = null;
+        const blob = new Blob(chunks, mime ? { type: mime } : undefined);
+        void transcribeBlob(blob);
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      mediaStreamRef.current = stream;
+      setTranscript('');
+      setRecording(true);
+      onRecordingChange?.(true);
+      startTimer();
+    } catch (err) {
+      console.error('[deskclaw] microphone capture failed:', err);
+    }
+  };
+
+  const transcribeBlob = async (blob: Blob) => {
+    if (blob.size === 0) {
+      setTranscribing(false);
+      return;
+    }
+    setTranscribing(true);
+    try {
+      const audioB64 = await blobToBase64(blob);
+      const text = await invoke<string>('transcribe_audio', {
+        audioB64,
+        ext: mediaExtRef.current,
+      });
+      if (text.trim()) onTranscribed(text.trim());
+    } catch (err) {
+      console.error('[deskclaw] transcription failed:', err);
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
   const stopRecording = () => {
     if (timerRef.current) clearInterval(timerRef.current);
+
     if (recognitionRef.current) {
       const ref = recognitionRef.current;
       recognitionRef.current = null;
       try { ref.stop(); } catch { /* ignore */ }
+
+      const text = transcriptRef.current.trim();
+      if (text) {
+        onTranscribed(text);
+      }
     }
 
-    const text = transcriptRef.current.trim();
-    if (text) {
-      onTranscribed(text);
+    if (mediaRecorderRef.current) {
+      const rec = mediaRecorderRef.current;
+      mediaRecorderRef.current = null;
+      try {
+        if (rec.state !== 'inactive') rec.stop(); // onstop kicks off transcription
+      } catch { /* ignore */ }
     }
 
     setTranscript('');
@@ -165,6 +275,22 @@ export function VoiceRecorder({ onTranscribed, onRecordingChange }: Props) {
     );
   }
 
+  if (transcribing) {
+    return (
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '4px',
+          color: 'var(--text-muted)',
+        }}
+        title="Transcribing..."
+      >
+        <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+      </span>
+    );
+  }
+
   return (
     <button
       onClick={startRecording}
@@ -202,7 +328,7 @@ interface SpeechRecognitionResultList {
 interface SpeechRecognitionResult {
   isFinal: boolean;
   length: number;
-  [index: number]: { transcript: string; confidence: number };
+  [index: number]: { transcript: string };
 }
 
 interface SpeechRecognitionInstance extends EventTarget {
