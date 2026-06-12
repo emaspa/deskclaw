@@ -1099,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "deskclaw"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.22.1",

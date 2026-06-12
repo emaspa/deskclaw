@@ -4,7 +4,7 @@ import { TitleBar } from './TitleBar';
 import { Sidebar } from './Sidebar';
 import { ChatView } from '../chat/ChatView';
 import { useConnectionStore } from '../../store/connectionStore';
-import { useSessionStore } from '../../store/sessionStore';
+import { useSessionStore, agentIdFromKey } from '../../store/sessionStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { listSessions, getAgentIdentity, listAgents, getGatewayInfo, setNotificationIdentity } from '../../lib/tauri';
 import type { AgentInfo } from '../../lib/types';
@@ -70,7 +70,9 @@ export function AppShell() {
         if (!currentActive && sessions.length > 0) {
           const savedKey = layoutPrefs?.lastSessionKey;
           const match = savedKey && sessions.find((s) => s.key === savedKey);
-          useSessionStore.getState().setActiveSession(match ? savedKey! : sessions[0].key);
+          // Fall back to a main-agent session before anything else
+          const main = sessions.find((s) => agentIdFromKey(s.key) === 'main');
+          useSessionStore.getState().setActiveSession(match ? savedKey! : (main || sessions[0]).key);
         }
       } catch (e) {
         console.error('[deskclaw] initial session fetch error:', e);

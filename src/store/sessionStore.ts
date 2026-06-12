@@ -28,6 +28,12 @@ export function extractSessionId(data: Record<string, unknown>): string {
   return (data.sessionKey as string) || (data.sessionId as string) || (data.session_id as string) || (data.key as string) || '';
 }
 
+/** Derive the owning agent id from a session key (e.g. "agent:knox:whatsapp:..." → "knox") */
+export function agentIdFromKey(key: string): string {
+  const parts = key.split(':');
+  return parts[0] === 'agent' && parts[1] ? parts[1] : 'main';
+}
+
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   activeSessionId: null,

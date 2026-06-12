@@ -34,19 +34,43 @@ function formatSessionName(session: SessionInfo): string {
 
 const CHANNEL_LABELS: Record<string, string> = {
   whatsapp: '💬 WhatsApp',
-  openai: '🤖 OpenAI',
   telegram: '📨 Telegram',
+  discord: '🎮 Discord',
+  slack: '💼 Slack',
+  signal: '🔒 Signal',
+  imessage: '🍎 iMessage',
+  bluebubbles: '🍎 iMessage',
+  matrix: '🔷 Matrix',
+  mattermost: '📋 Mattermost',
+  msteams: '👥 Teams',
+  googlechat: '💬 Google Chat',
+  line: '💚 LINE',
+  email: '📧 Email',
+  irc: '📟 IRC',
+  nostr: '🟣 Nostr',
+  feishu: '📘 Feishu',
+  webchat: '🌐 Web',
   web: '🌐 Web',
+  openai: '🤖 OpenAI',
+  voice: '🎙️ Voice',
+  talk: '🎙️ Voice',
 };
+
+function channelLabel(channel: string): string {
+  return CHANNEL_LABELS[channel.toLowerCase()]
+    || channel.charAt(0).toUpperCase() + channel.slice(1);
+}
 
 function formatSubtitle(session: SessionInfo): string {
   const parts: string[] = [];
   const keyParts = session.key.split(':');
 
-  // Channel from key (e.g. agent:main:whatsapp:direct:+353...)
+  // Channel from key (e.g. agent:main:whatsapp:direct:+353...), falling back
+  // to the gateway-reported last active channel
   if (keyParts.length > 2 && keyParts[2] !== 'main') {
-    const channel = keyParts[2];
-    parts.push(CHANNEL_LABELS[channel] || channel);
+    parts.push(channelLabel(keyParts[2]));
+  } else if (session.last_channel) {
+    parts.push(channelLabel(session.last_channel));
   } else if (session.kind) {
     parts.push(session.kind);
   }

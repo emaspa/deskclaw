@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
-import { useSessionStore } from '../../store/sessionStore';
+import { useEffect, useMemo, useState } from 'react';
+import { useSessionStore, agentIdFromKey } from '../../store/sessionStore';
 import { listSessions, getAgentIdentity, createSession, setNotificationIdentity } from '../../lib/tauri';
 import { SessionItem } from './SessionItem';
 import { Spinner } from '../ui/Spinner';
-import { RefreshCw, PanelLeftClose, Plus } from 'lucide-react';
+import { RefreshCw, PanelLeftClose, Plus, ChevronDown, ChevronRight, Search, X } from 'lucide-react';
+import type { SessionInfo } from '../../lib/types';
 
 interface SessionListProps {
   onCollapse?: () => void;
@@ -21,8 +22,42 @@ export function SessionList({ onCollapse }: SessionListProps) {
   const [newLabel, setNewLabel] = useState('');
   const [newAgentId, setNewAgentId] = useState('');
   const [createBusy, setCreateBusy] = useState(false);
+  // Agent groups start collapsed except main; user toggles are kept here
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ main: true });
+  const [query, setQuery] = useState('');
+
+  // Search filters across all groups; results render flat
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    return sessions.filter((s) =>
+      [s.display_name, s.key, s.kind, s.model, s.last_channel]
+        .some((f) => f && f.toLowerCase().includes(q))
+    );
+  }, [sessions, query]);
   const agents = useSessionStore((s) => s.agents);
   const canCreate = useSessionStore((s) => s.hasGatewayMethod('sessions.create'));
+
+  // Group sessions by owning agent, like the official Control UI: main
+  // first, the rest alphabetical.
+  const groups = useMemo(() => {
+    const map = new Map<string, SessionInfo[]>();
+    for (const s of sessions) {
+      const id = agentIdFromKey(s.key);
+      const list = map.get(id);
+      if (list) list.push(s);
+      else map.set(id, [s]);
+    }
+    return [...map.keys()]
+      .sort((a, b) => (a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b)))
+      .map((id) => ({ id, sessions: map.get(id)! }));
+  }, [sessions]);
+
+  const agentLabel = (id: string) => {
+    const agent = agents.find((a) => a.id === id);
+    const name = agent?.name || id.charAt(0).toUpperCase() + id.slice(1);
+    return agent?.emoji ? `${agent.emoji} ${name}` : name;
+  };
 
   const fetchSessions = async () => {
     setLoading(true);
@@ -46,7 +81,8 @@ export function SessionList({ onCollapse }: SessionListProps) {
       console.log('[deskclaw] sessions:', result.length, result.map(s => s.key));
       setSessions(result);
       if (result.length > 0 && !activeSessionId) {
-        setActiveSession(result[0].key);
+        const main = result.find((s) => agentIdFromKey(s.key) === 'main');
+        setActiveSession((main || result[0]).key);
       }
     } catch (e) {
       const msg = typeof e === 'string' ? e : (e as Error).message || 'Failed to load sessions';
@@ -173,6 +209,53 @@ export function SessionList({ onCollapse }: SessionListProps) {
         </div>
       </div>
 
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          margin: '0 12px 8px',
+          padding: '5px 8px',
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid var(--glass-border)',
+          borderRadius: 'var(--radius-md)',
+        }}
+      >
+        <Search size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setQuery(''); }}
+          placeholder="Search sessions..."
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            color: 'var(--text-primary)',
+            fontSize: 'var(--font-sm)',
+            fontFamily: 'inherit',
+          }}
+        />
+        {query && (
+          <button
+            onClick={() => setQuery('')}
+            aria-label="Clear search"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              padding: 0,
+              display: 'flex',
+            }}
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
       {creating && (
         <div
           style={{
@@ -283,14 +366,82 @@ export function SessionList({ onCollapse }: SessionListProps) {
             No sessions found
           </div>
         )}
-        {sessions.map((session) => (
-          <SessionItem
-            key={session.key}
-            session={session}
-            active={session.key === activeSessionId}
-            onClick={() => setActiveSession(session.key)}
-          />
-        ))}
+        {filtered && filtered.length === 0 && !loading && (
+          <div
+            style={{
+              color: 'var(--text-secondary)',
+              fontSize: 'var(--font-sm)',
+              textAlign: 'center',
+              padding: '24px 12px',
+            }}
+          >
+            No matching sessions
+          </div>
+        )}
+        {filtered
+          ? filtered.map((session) => (
+              <SessionItem
+                key={session.key}
+                session={session}
+                active={session.key === activeSessionId}
+                onClick={() => setActiveSession(session.key)}
+              />
+            ))
+          : groups.length <= 1
+          ? sessions.map((session) => (
+              <SessionItem
+                key={session.key}
+                session={session}
+                active={session.key === activeSessionId}
+                onClick={() => setActiveSession(session.key)}
+              />
+            ))
+          : groups.map((group) => {
+              // Keep a group open while one of its sessions is active
+              const hasActive = group.sessions.some((s) => s.key === activeSessionId);
+              const isOpen = expanded[group.id] || hasActive;
+              const Chevron = isOpen ? ChevronDown : ChevronRight;
+              return (
+                <div key={group.id}>
+                  <button
+                    onClick={() => setExpanded((e) => ({ ...e, [group.id]: !isOpen }))}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 8px 4px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      fontSize: 'var(--font-xs)',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      textAlign: 'left',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                  >
+                    <Chevron size={12} style={{ flexShrink: 0 }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {agentLabel(group.id)}
+                    </span>
+                    <span style={{ fontWeight: 400 }}>{group.sessions.length}</span>
+                  </button>
+                  {isOpen && group.sessions.map((session) => (
+                    <SessionItem
+                      key={session.key}
+                      session={session}
+                      active={session.key === activeSessionId}
+                      onClick={() => setActiveSession(session.key)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
       </div>
     </div>
   );
