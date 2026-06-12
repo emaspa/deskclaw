@@ -26,10 +26,13 @@ Built with **Tauri v2** (Rust backend) and **React 19** (TypeScript frontend).
 ## Features
 
 **Chat**
-- Real-time messaging with markdown rendering (GFM)
-- Message queueing when the agent is busy, with auto-send on idle
+- Real-time messaging with streamed responses and markdown rendering (GFM)
+- Steer the running agent mid-response (⚡) or queue messages, with auto-send on idle
+- Session list grouped by agent, with search and channel labels
+- Session operations: compact, reset, usage/cost display
 - File attachments with inline image/audio preview
-- Voice-to-text via Web Speech Recognition
+- Voice-to-text on every platform (Chromium dictation on Windows; gateway-side
+  whisper transcription on Linux/macOS - see [Voice input](#voice-input-on-linux-and-macos))
 - Emoji picker
 - Model picker with live switching
 - Context token usage display
@@ -70,6 +73,41 @@ Download the latest release for your platform from the [Releases](https://github
 | macOS (Apple Silicon) | `.dmg`, `.app.tar.gz` |
 | macOS (Intel) | `.dmg`, `.app.tar.gz` |
 | Linux | `.deb`, `.rpm`, `.AppImage` |
+
+## Voice input on Linux and macOS
+
+Windows dictates in-webview via Chromium's speech API. The Linux (WebKitGTK)
+and macOS (WKWebView) webviews have no built-in speech recognition, so there
+DeskClaw records the microphone with MediaRecorder and transcribes on the
+gateway host via `openclaw capability audio transcribe` over the existing SSH
+connection.
+
+Requirements:
+
+- **Linux client:** GStreamer audio plugins for capture/encoding:
+  `sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-pulseaudio`
+  (macOS needs nothing beyond accepting the microphone permission prompt)
+- **Gateway host:** a configured OpenClaw transcription model, e.g. local
+  [whisper.cpp](https://github.com/ggml-org/whisper.cpp):
+
+```json
+{
+  "tools": {
+    "media": {
+      "audio": {
+        "enabled": true,
+        "models": [{
+          "type": "cli",
+          "command": "/path/to/whisper.cpp/build/bin/whisper-cli",
+          "args": ["-m", "/path/to/ggml-small.bin", "-ng", "-l", "auto",
+                   "-otxt", "-of", "{{OutputBase}}", "-f", "{{MediaPath}}"],
+          "timeoutSeconds": 120
+        }]
+      }
+    }
+  }
+}
+```
 
 ## Building from Source
 
@@ -158,36 +196,3 @@ deskclaw/
 ## Support
 
 If you find DeskClaw useful, consider [buying me a coffee](https://buymeacoffee.com/emaspa).
-
-## Voice input on Linux
-
-Windows dictates in-webview via Chromium's speech API. Linux (WebKitGTK) has no
-built-in speech recognition, so DeskClaw records the microphone with
-MediaRecorder and transcribes on the gateway host via
-`openclaw capability audio transcribe` over the existing SSH connection.
-
-Requirements:
-
-- **Client:** GStreamer audio plugins for capture/encoding:
-  `sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-pulseaudio`
-- **Gateway host:** a configured OpenClaw transcription model, e.g. local
-  [whisper.cpp](https://github.com/ggml-org/whisper.cpp):
-
-```json
-{
-  "tools": {
-    "media": {
-      "audio": {
-        "enabled": true,
-        "models": [{
-          "type": "cli",
-          "command": "/path/to/whisper.cpp/build/bin/whisper-cli",
-          "args": ["-m", "/path/to/ggml-small.bin", "-ng", "-l", "auto",
-                   "-otxt", "-of", "{{OutputBase}}", "-f", "{{MediaPath}}"],
-          "timeoutSeconds": 120
-        }]
-      }
-    }
-  }
-}
-```
