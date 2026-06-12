@@ -1,13 +1,35 @@
-use crate::crypto::identity::DeviceIdentity;
+use crate::crypto::identity::{self, DeviceIdentity};
 use crate::gateway::protocol::*;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
+/// Gateway protocol version this client speaks. Current gateways require v4
+/// (MIN_CLIENT_PROTOCOL_VERSION = 4) and reject anything older.
+pub const PROTOCOL_VERSION: u64 = 4;
+
+/// Parsed hello-ok payload returned by a successful connect.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct HandshakeResult {
+    pub device_token: String,
+    pub protocol: u64,
+    pub methods: Vec<String>,
+    pub events: Vec<String>,
+    pub max_payload: u64,
+    pub tick_interval_ms: u64,
+}
+
+/// Which credential to present in connect.params.auth. The signing payload
+/// must embed the same value the gateway resolves for signature checking.
+pub enum AuthCredential<'a> {
+    GatewayToken(&'a str),
+    DeviceToken(&'a str),
+}
+
 pub async fn perform_handshake<S>(
     ws_stream: &mut S,
     identity: &DeviceIdentity,
-    token: &str,
-) -> Result<String, crate::error::AppError>
+    credential: &AuthCredential<'_>,
+) -> Result<HandshakeResult, crate::error::AppError>
 where
     S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
         + SinkExt<Message>
@@ -51,35 +73,39 @@ where
         .unwrap()
         .as_millis() as u64;
 
-    let signing_payload = identity.build_signing_payload(token, &nonce, signed_at_ms);
-    log::debug!("Signing payload length: {} bytes", signing_payload.len());
+    let signing_token = match credential {
+        AuthCredential::GatewayToken(t) | AuthCredential::DeviceToken(t) => *t,
+    };
+    let signing_payload = identity.build_signing_payload(signing_token, &nonce, signed_at_ms);
     let signature = identity.sign(signing_payload.as_bytes());
     let public_key = identity.public_key_base64url();
     let device_id = identity.device_id();
 
     log::info!("Device ID: {}", device_id);
-    log::debug!("Public key (base64url): {}...", &public_key[..public_key.len().min(12)]);
-    log::debug!("Signature: {} bytes", signature.len());
 
-    // 3. Send connect request with proper structure
+    let auth = match credential {
+        AuthCredential::GatewayToken(t) => serde_json::json!({ "token": t }),
+        AuthCredential::DeviceToken(t) => serde_json::json!({ "deviceToken": t }),
+    };
+
+    // 3. Send connect request
     let connect_req = GatewayMessage::Request {
         id: uuid::Uuid::new_v4().to_string(),
         method: "connect".to_string(),
         params: serde_json::json!({
-            "minProtocol": 3,
-            "maxProtocol": 3,
+            "minProtocol": PROTOCOL_VERSION,
+            "maxProtocol": PROTOCOL_VERSION,
             "client": {
-                "id": "gateway-client",
-                "version": "0.1.0",
-                "platform": "windows",
-                "mode": "backend",
-                "deviceFamily": "desktop"
+                "id": identity::CLIENT_ID,
+                "displayName": identity::CLIENT_DISPLAY_NAME,
+                "version": env!("CARGO_PKG_VERSION"),
+                "platform": identity::platform(),
+                "mode": identity::CLIENT_MODE,
+                "deviceFamily": identity::DEVICE_FAMILY
             },
-            "role": "operator",
-            "scopes": ["operator.read", "operator.write", "operator.admin"],
-            "auth": {
-                "token": token
-            },
+            "role": identity::ROLE,
+            "scopes": identity::SCOPES,
+            "auth": auth,
             "device": {
                 "id": device_id,
                 "publicKey": public_key,
@@ -93,14 +119,14 @@ where
     let req_text = serde_json::to_string(&connect_req)
         .map_err(|e| crate::error::AppError::Gateway(e.to_string()))?;
 
-    log::info!("Sending connect request (token redacted), {} bytes", req_text.len());
+    log::info!("Sending connect request (protocol v{}, credentials redacted)", PROTOCOL_VERSION);
 
     ws_stream
         .send(Message::Text(req_text.into()))
         .await
         .map_err(|e| crate::error::AppError::Gateway(e.to_string()))?;
 
-    // 4. Wait for hello-ok response
+    // 4. Wait for the connect response (a res frame whose payload is hello-ok)
     let response_msg = ws_stream
         .next()
         .await
@@ -123,16 +149,7 @@ where
             ok: true,
             payload: Some(payload),
             ..
-        } => {
-            // Extract device token from payload.auth.deviceToken
-            let device_token = payload
-                .get("auth")
-                .and_then(|a| a.get("deviceToken"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-            Ok(device_token)
-        }
+        } => Ok(parse_hello_ok(&payload)),
         GatewayMessage::Response {
             ok: false,
             error: Some(err),
@@ -159,5 +176,39 @@ where
             "Unexpected response: {}",
             response_text
         ))),
+    }
+}
+
+fn parse_hello_ok(payload: &serde_json::Value) -> HandshakeResult {
+    let str_array = |v: Option<&serde_json::Value>| -> Vec<String> {
+        v.and_then(|a| a.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|s| s.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    HandshakeResult {
+        device_token: payload
+            .get("auth")
+            .and_then(|a| a.get("deviceToken"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string(),
+        protocol: payload.get("protocol").and_then(|p| p.as_u64()).unwrap_or(0),
+        methods: str_array(payload.get("features").and_then(|f| f.get("methods"))),
+        events: str_array(payload.get("features").and_then(|f| f.get("events"))),
+        max_payload: payload
+            .get("policy")
+            .and_then(|p| p.get("maxPayload"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(25 * 1024 * 1024),
+        tick_interval_ms: payload
+            .get("policy")
+            .and_then(|p| p.get("tickIntervalMs"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(30_000),
     }
 }

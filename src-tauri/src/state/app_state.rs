@@ -13,7 +13,24 @@ pub enum ConnectionPhase {
     ConnectingGateway,
     Handshaking,
     Connected,
+    Reconnecting,
     Error(String),
+}
+
+/// Gateway capabilities and limits from the hello-ok handshake payload.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct GatewayInfo {
+    pub protocol: u64,
+    pub methods: Vec<String>,
+    pub events: Vec<String>,
+    pub max_payload: u64,
+    pub tick_interval_ms: u64,
+}
+
+impl GatewayInfo {
+    pub fn has_method(&self, method: &str) -> bool {
+        self.methods.iter().any(|m| m == method)
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -50,8 +67,8 @@ pub struct AppState {
     pub messages: Mutex<HashMap<String, Vec<ChatMessage>>>,
     pub device_token: Mutex<Option<String>>,
     pub local_port: Mutex<Option<u16>>,
-    /// Local port that tunnels to the remote HTTP media server (serves ~/.deskclaw/media/)
-    pub media_server_port: Mutex<Option<u16>>,
+    /// Features and policy limits negotiated in the gateway handshake
+    pub gateway_info: Mutex<Option<GatewayInfo>>,
     /// Whether the window should hide to tray instead of closing
     pub close_to_tray: AtomicBool,
 }
@@ -67,7 +84,7 @@ impl AppState {
             messages: Mutex::new(HashMap::new()),
             device_token: Mutex::new(None),
             local_port: Mutex::new(None),
-            media_server_port: Mutex::new(None),
+            gateway_info: Mutex::new(None),
             close_to_tray: AtomicBool::new(true),
         }
     }

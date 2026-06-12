@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { SessionInfo, ChatMessage, ConnectionPhase, ConnectParams, AppSettings, Attachment } from './types';
+import type { SessionInfo, ChatMessage, ConnectionPhase, ConnectParams, AppSettings, Attachment, GatewayInfo } from './types';
 
 export async function connectSsh(params: ConnectParams): Promise<void> {
   return invoke('connect_ssh', { params });
@@ -61,6 +61,58 @@ export async function getHistory(
 
 export async function cancelRun(sessionId: string, runId: string): Promise<unknown> {
   return invoke('cancel_run', { sessionId, runId });
+}
+
+/** Inject guidance into a running agent (sessions.steer interrupts the active run) */
+export async function steerMessage(sessionId: string, message: string): Promise<unknown> {
+  return invoke('steer_message', { sessionId, message });
+}
+
+export async function createSession(label?: string, agentId?: string): Promise<Record<string, unknown>> {
+  return invoke('create_session', { label, agentId });
+}
+
+export async function deleteSession(sessionId: string): Promise<unknown> {
+  return invoke('delete_session', { sessionId });
+}
+
+export async function resetSession(sessionId: string): Promise<unknown> {
+  return invoke('reset_session', { sessionId });
+}
+
+export async function compactSession(sessionId: string): Promise<unknown> {
+  return invoke('compact_session', { sessionId });
+}
+
+export async function getSessionUsage(sessionId?: string): Promise<Record<string, unknown>> {
+  return invoke('get_session_usage', { sessionId });
+}
+
+export async function getUsageCost(): Promise<Record<string, unknown>> {
+  return invoke('get_usage_cost');
+}
+
+export async function listAgents(): Promise<Record<string, unknown>> {
+  return invoke('list_agents');
+}
+
+export async function ttsConvert(text: string): Promise<Record<string, unknown>> {
+  return invoke('tts_convert', { text });
+}
+
+export async function getGatewayInfo(): Promise<GatewayInfo | null> {
+  return invoke('get_gateway_info');
+}
+
+/** Native toast with proper app attribution (registered AUMID on Windows).
+ *  Clicking it focuses the window and navigates to sessionId when given. */
+export async function sendNativeNotification(title: string, body: string, sessionId?: string): Promise<void> {
+  return invoke('send_native_notification', { title, body, sessionId });
+}
+
+/** Set the notification attribution name to the connected agent's name */
+export async function setNotificationIdentity(name: string): Promise<void> {
+  return invoke('set_notification_identity', { name });
 }
 
 export async function injectMessage(

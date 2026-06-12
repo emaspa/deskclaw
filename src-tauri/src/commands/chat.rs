@@ -8,78 +8,6 @@ pub struct Attachment {
     pub data: String, // base64-encoded
 }
 
-/// Upload attachments to the remote server via SSH and return their absolute server-side paths.
-/// Files are written to $HOME/.deskclaw/media/ on the server. A Python HTTP server on port 19284
-/// serves these files so the agent can access them via URL.
-async fn upload_attachments_ssh(
-    attachments: &[Attachment],
-    state: &State<'_, AppState>,
-) -> Result<Vec<String>, String> {
-    let tunnel = state.ssh_tunnel.lock().await;
-    let ssh = tunnel.as_ref().ok_or("SSH not connected")?;
-
-    // Get the remote home directory for absolute paths
-    let home_dir = ssh
-        .exec("echo $HOME")
-        .await
-        .map_err(|e| format!("Failed to get remote HOME: {}", e))?;
-    let home_dir = home_dir.trim().to_string();
-    if home_dir.is_empty() {
-        return Err("Could not determine remote home directory".into());
-    }
-
-    let media_dir = format!("{}/.deskclaw/media", home_dir);
-
-    let mut paths = Vec::new();
-    for att in attachments {
-        let ext = att
-            .name
-            .rsplit('.')
-            .next()
-            .unwrap_or("bin")
-            .to_lowercase();
-        let uuid = uuid::Uuid::new_v4();
-        let remote_path = format!("{}/{}.{}", media_dir, uuid, ext);
-
-        // Decode base64 to raw bytes
-        let raw_bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &att.data,
-        )
-        .map_err(|e| format!("base64 decode error for {}: {}", att.name, e))?;
-
-        log::info!(
-            "Uploading attachment via SSH: {} -> {} ({} bytes)",
-            att.name,
-            remote_path,
-            raw_bytes.len()
-        );
-
-        ssh.write_file(&remote_path, &raw_bytes)
-            .await
-            .map_err(|e| format!("SSH upload failed for {}: {}", att.name, e))?;
-
-        // Verify file was written correctly
-        let size_check = ssh
-            .exec(&format!("stat -c%s {}", crate::ssh::tunnel::shell_escape(&remote_path)))
-            .await
-            .unwrap_or_default();
-        let remote_size: usize = size_check.trim().parse().unwrap_or(0);
-        if remote_size != raw_bytes.len() {
-            log::error!(
-                "SIZE MISMATCH for {}: wrote {} bytes, server has {} bytes",
-                att.name, raw_bytes.len(), remote_size
-            );
-        } else {
-            log::info!("Upload verified: {} bytes on server", remote_size);
-        }
-
-        paths.push(remote_path);
-    }
-
-    Ok(paths)
-}
-
 #[tauri::command]
 pub async fn send_message(
     session_id: String,
@@ -96,63 +24,51 @@ pub async fn send_message(
         idempotency_key
     );
 
-    // OpenClaw strips base64 RPC attachments for third-party gateway clients.
-    // Instead, we upload files via SSH and serve them via a tunneled HTTP server.
-    // The agent message includes the remote URL so the agent can fetch/read the image.
-    let mut final_message = message.clone();
-    let mut media_urls: Vec<String> = Vec::new();
+    let mut params = serde_json::json!({
+        "sessionKey": session_id,
+        "message": message,
+        "idempotencyKey": idempotency_key,
+    });
 
+    // Protocol v4 gateways accept inline base64 attachments on chat.send and
+    // stage them into the agent workspace — no out-of-band upload needed.
     if let Some(atts) = &attachments {
         if !atts.is_empty() {
-            match upload_attachments_ssh(atts, &state).await {
-                Ok(paths) => {
-                    // Get the local tunnel port for frontend display
-                    let local_media_port = state.media_server_port.lock().await;
-
-                    for (i, path) in paths.iter().enumerate() {
-                        // Extract filename (uuid.ext) from the full path
-                        let filename = path.rsplit('/').next().unwrap_or("");
-
-                        log::info!("Attachment uploaded: {} -> {}", atts[i].name, path);
-
-                        // Include the remote HTTP URL with context about file type
-                        let url = format!("http://127.0.0.1:19284/{}", filename);
-                        let mime = &atts[i].mime_type;
-                        if mime.starts_with("audio/") {
-                            final_message.push_str(
-                                &format!("\n[Voice message (audio file): {}]", url)
-                            );
-                        } else if mime.starts_with("image/") {
-                            final_message.push_str(&format!(" {}", url));
-                        } else {
-                            final_message.push_str(
-                                &format!("\n[Attached file \"{}\": {}]", atts[i].name, url)
-                            );
-                        }
-
-                        // Build local tunnel URL for the frontend to display
-                        if let Some(port) = *local_media_port {
-                            media_urls.push(
-                                format!("http://127.0.0.1:{}/{}", port, filename)
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::warn!("SSH upload failed: {}", e);
-                }
+            let max_payload = state
+                .gateway_info
+                .lock()
+                .await
+                .as_ref()
+                .map(|i| i.max_payload)
+                .unwrap_or(25 * 1024 * 1024);
+            let total: usize = atts.iter().map(|a| a.data.len()).sum();
+            // Leave headroom for the JSON envelope around the base64 bodies.
+            if total as u64 + 64 * 1024 > max_payload {
+                return Err(format!(
+                    "Attachments too large: {} bytes exceeds the gateway payload limit of {} bytes",
+                    total, max_payload
+                ));
             }
+
+            let wire_attachments: Vec<serde_json::Value> = atts
+                .iter()
+                .map(|a| {
+                    serde_json::json!({
+                        "mimeType": a.mime_type,
+                        "fileName": a.name,
+                        "content": a.data,
+                    })
+                })
+                .collect();
+            params
+                .as_object_mut()
+                .unwrap()
+                .insert("attachments".into(), serde_json::Value::Array(wire_attachments));
         }
     }
 
     let gateway = state.gateway.lock().await;
     let gw = gateway.as_ref().ok_or("Not connected")?;
-
-    let params = serde_json::json!({
-        "sessionKey": session_id,
-        "message": final_message,
-        "idempotencyKey": idempotency_key,
-    });
 
     let result = gw
         .rpc("chat.send", params)
@@ -167,15 +83,35 @@ pub async fn send_message(
         &result.to_string()[..result.to_string().len().min(500)]
     );
 
-    // Return the RPC result and tunneled media URLs for frontend inline rendering
-    let mut response = serde_json::json!({ "rpc": result });
-    if !media_urls.is_empty() {
-        response.as_object_mut().unwrap().insert(
-            "mediaUrls".into(),
-            serde_json::Value::Array(media_urls.into_iter().map(serde_json::Value::String).collect()),
-        );
-    }
-    Ok(response)
+    Ok(serde_json::json!({ "rpc": result }))
+}
+
+/// Steer a running agent: injects guidance into the active run instead of
+/// queueing a new turn (sessions.steer interrupts; sessions.send waits).
+#[tauri::command]
+pub async fn steer_message(
+    session_id: String,
+    message: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let gateway = state.gateway.lock().await;
+    let gw = gateway.as_ref().ok_or("Not connected")?;
+
+    log::info!("sessions.steer: key={}", session_id);
+
+    gw.rpc(
+        "sessions.steer",
+        serde_json::json!({
+            "key": session_id,
+            "message": message,
+            "idempotencyKey": uuid::Uuid::new_v4().to_string(),
+        }),
+    )
+    .await
+    .map_err(|e| {
+        log::error!("sessions.steer RPC error: {}", e);
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -317,7 +253,7 @@ pub async fn set_model(
 }
 
 /// Download a file from the remote server via SSH and return its base64-encoded content.
-/// Used to display attachments in the chat that were previously uploaded.
+/// Used for legacy media paths in old messages and for fetching tts.convert output.
 #[tauri::command]
 pub async fn download_remote_file(
     path: String,
@@ -363,13 +299,22 @@ pub async fn cancel_run(
     run_id: String,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    log::info!("chat.cancel: sessionKey={}, runId={}", session_id, run_id);
-
     let gateway = state.gateway.lock().await;
     let gw = gateway.as_ref().ok_or("Not connected")?;
 
+    // Protocol v4 renamed chat.cancel to chat.abort; fall back for older gateways.
+    let method = {
+        let info = state.gateway_info.lock().await;
+        match info.as_ref() {
+            Some(i) if !i.has_method("chat.abort") && i.has_method("chat.cancel") => "chat.cancel",
+            _ => "chat.abort",
+        }
+    };
+
+    log::info!("{}: sessionKey={}, runId={}", method, session_id, run_id);
+
     gw.rpc(
-        "chat.cancel",
+        method,
         serde_json::json!({
             "sessionKey": session_id,
             "runId": run_id,
@@ -377,7 +322,7 @@ pub async fn cancel_run(
     )
     .await
     .map_err(|e| {
-        log::error!("chat.cancel RPC error: {}", e);
+        log::error!("{} RPC error: {}", method, e);
         e.to_string()
     })
 }

@@ -21,7 +21,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .manage(AppState::new())
+        .manage(commands::notify::NotifyIdentity::default())
         .setup(|app| {
+            commands::notify::init(&app.handle().clone());
             // On macOS, enable decorations so native traffic light buttons appear.
             #[cfg(target_os = "macos")]
             {
@@ -90,16 +92,28 @@ pub fn run() {
             commands::sessions::get_agent_identity,
             commands::sessions::list_models,
             commands::chat::send_message,
+            commands::chat::steer_message,
             commands::chat::get_history,
             commands::chat::inject_message,
             commands::chat::cancel_run,
             commands::chat::set_model,
             commands::chat::download_remote_file,
+            commands::session_ops::create_session,
+            commands::session_ops::delete_session,
+            commands::session_ops::reset_session,
+            commands::session_ops::compact_session,
+            commands::session_ops::get_session_usage,
+            commands::session_ops::get_usage_cost,
+            commands::session_ops::list_agents,
+            commands::session_ops::tts_convert,
+            commands::session_ops::get_gateway_info,
             commands::settings::save_settings,
             commands::settings::load_settings,
             commands::settings::set_close_to_tray,
             commands::crypto::encrypt_string,
             commands::crypto::decrypt_string,
+            commands::notify::send_native_notification,
+            commands::notify::set_notification_identity,
             commands::updates::check_for_updates,
         ])
         .run(tauri::generate_context!())

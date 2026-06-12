@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
+import { onAction } from '@tauri-apps/plugin-notification';
 import { useConnectionStore } from '../store/connectionStore';
 import { useChatStore } from '../store/chatStore';
 import { useSessionStore, extractSessionId } from '../store/sessionStore';
 import { useSettingsStore } from '../store/settingsStore';
-import { sendMessage, listSessions } from '../lib/tauri';
+import { listSessions, sendNativeNotification } from '../lib/tauri';
 import type { ConnectionPhase, SessionInfo } from '../lib/types';
 
 // Convert timestamp (can be number ms, string, or missing)
@@ -28,23 +28,18 @@ function extractContent(raw: unknown): string {
   return '';
 }
 
-async function maybeNotify(content: string) {
+async function maybeNotify(content: string, sessionId?: string) {
   try {
     if (!useSettingsStore.getState().notifyOnMessage) return;
     if (await getCurrentWindow().isFocused()) return;
-
-    let permitted = await isPermissionGranted();
-    if (!permitted) {
-      const result = await requestPermission();
-      permitted = result === 'granted';
-    }
-    if (!permitted) return;
 
     const { agentIdentity } = useSessionStore.getState();
     const title = agentIdentity?.name || 'DeskClaw';
     const body = content.length > 200 ? content.slice(0, 200) + '...' : content;
 
-    sendNotification({ title, body });
+    // Native command (not the plugin) so the toast is attributed to our
+    // registered app identity instead of "Windows PowerShell".
+    await sendNativeNotification(title, body, sessionId);
   } catch (err) {
     console.warn('[deskclaw] notification failed:', err);
   }
@@ -61,9 +56,15 @@ function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
   }) as unknown as T;
 }
 
+/** Streaming message ids are derived from the run id so deltas and the final
+ *  message for the same run land on the same bubble. */
+const streamId = (runId: string) => `stream-${runId}`;
+
 export function useTauriEvents() {
   const setPhase = useConnectionStore((s) => s.setPhase);
   const addMessage = useChatStore((s) => s.addMessage);
+  const applyDelta = useChatStore((s) => s.applyDelta);
+  const finalizeStream = useChatStore((s) => s.finalizeStream);
   const addRun = useChatStore((s) => s.addRun);
   const removeRun = useChatStore((s) => s.removeRun);
   const setAgentPhase = useChatStore((s) => s.setAgentPhase);
@@ -85,6 +86,17 @@ export function useTauriEvents() {
     }, 2000)
   );
 
+  // Debounced full session list refresh for sessions.changed broadcasts
+  const debouncedListRefreshRef = useRef(
+    debounce(() => {
+      listSessions()
+        .then((sessions: SessionInfo[]) => {
+          useSessionStore.getState().setSessions(sessions);
+        })
+        .catch(() => {});
+    }, 1000)
+  );
+
   useEffect(() => {
     let cancelled = false;
     const unlisteners: (() => void)[] = [];
@@ -98,7 +110,6 @@ export function useTauriEvents() {
 
       const u2 = await listen<Record<string, unknown>>('new-message', (event) => {
         const data = event.payload;
-        console.log('[deskclaw] new-message event:', JSON.stringify(data).slice(0, 1000));
 
         const sessionId = extractSessionId(data);
         const msg = data.message as Record<string, unknown> | undefined;
@@ -111,7 +122,19 @@ export function useTauriEvents() {
         const state = data.state as string | undefined;
         const runId = data.runId as string | undefined;
 
-        // Skip "delta" events — only process final/complete/error to avoid duplicates
+        // Protocol v4 streaming: deltas carry the incremental text in
+        // deltaText; replace=true means deltaText is the full replacement
+        // (non-prefix rewrite), not an append.
+        if (state === 'delta') {
+          if (!runId) return;
+          const deltaText = (data.deltaText as string) ?? '';
+          const replace = data.replace === true;
+          if (deltaText || replace) {
+            applyDelta(sessionId, streamId(runId), deltaText, replace);
+          }
+          return;
+        }
+
         if (state && state !== 'final' && state !== 'complete' && state !== 'error') {
           return;
         }
@@ -123,7 +146,8 @@ export function useTauriEvents() {
           ? (extractContent(msg.content) || (msg.text as string) || '')
           : (extractContent(data.content) || (data.text as string) || ''));
         if (!content) {
-          if (!msg) console.warn('[deskclaw] new-message: no content found in payload');
+          // A final frame with no content still ends any stream for this run
+          if (runId) finalizeStream(sessionId, streamId(runId), null);
           return;
         }
 
@@ -133,34 +157,24 @@ export function useTauriEvents() {
         const role = ((msg?.role || data.role) as 'user' | 'assistant' | 'system' | 'tool') || 'assistant';
         const msgType = (msg?.type || msg?.messageType || data.type || data.messageType) as string | undefined;
 
-        // Auto-retry: when the agent responds with raw tool_code (e.g. image analysis),
-        // show a friendly placeholder and send a follow-up to get the actual result.
-        if (role === 'assistant' && content.trimStart().startsWith('tool_code')) {
-          console.log('[deskclaw] tool_code detected, auto-retrying for result');
-          addMessage(sessionId, {
-            id: (msg?.id as string) || (data.id as string) || runId || crypto.randomUUID(),
-            role: 'assistant',
-            content: '*Analyzing image...*',
-            timestamp: ts,
-            session_id: sessionId,
-          });
-          sendMessage(sessionId, 'describe what you found').catch((err) => {
-            console.error('[deskclaw] auto-retry after tool_code failed:', err);
-          });
-          return;
-        }
-
-        addMessage(sessionId, {
+        const finalMessage = {
           id: (msg?.id as string) || (data.id as string) || runId || crypto.randomUUID(),
-          role: state === 'error' ? 'system' : role,
+          role: state === 'error' ? 'system' as const : role,
           content: state === 'error' ? `**Error:** ${content}` : content,
           timestamp: ts,
           session_id: sessionId,
           message_type: msgType || undefined,
-        });
+        };
+
+        // Replace the streaming bubble (if any) with the final message
+        if (runId) {
+          finalizeStream(sessionId, streamId(runId), finalMessage);
+        } else {
+          addMessage(sessionId, finalMessage);
+        }
 
         if (role === 'assistant' && state !== 'error') {
-          maybeNotify(content);
+          maybeNotify(content, sessionId);
         }
 
         // Error state means the run is done — clear typing indicator
@@ -180,8 +194,6 @@ export function useTauriEvents() {
         const agentData = data.data as Record<string, unknown> | undefined;
         const phase = agentData?.phase as string | undefined;
 
-        console.log('[deskclaw] agent-update:', stream, 'phase:', phase, 'runId:', runId, 'session:', sessionId);
-
         if (!sessionId) return;
 
         // Lifecycle events: phase "start" / "end" / "error" — source of truth for typing indicator
@@ -193,6 +205,13 @@ export function useTauriEvents() {
           } else if (phase === 'end' || phase === 'error') {
             removeRun(sessionId, runId);
             setAgentPhase(sessionId, null);
+            // Drop any unfinished streaming bubble for this run; the final
+            // chat frame (when there is one) has already replaced it.
+            const messages = useChatStore.getState().messages[sessionId] || [];
+            const pending = messages.find((m) => m.id === streamId(runId) && m.streaming);
+            if (pending) {
+              finalizeStream(sessionId, streamId(runId), { ...pending, streaming: undefined });
+            }
             // Debounced token count refresh
             debouncedRefreshRef.current(sessionId);
           }
@@ -231,8 +250,26 @@ export function useTauriEvents() {
       if (cancelled) { u4(); return; }
       unlisteners.push(u4);
 
+      // sessions.changed broadcasts — keep the sidebar list live
+      const u5 = await listen<Record<string, unknown>>('sessions-changed', () => {
+        debouncedListRefreshRef.current();
+      });
+      if (cancelled) { u5(); return; }
+      unlisteners.push(u5);
+
+      // Toast clicks: backend focuses the window and tells us which session
+      // the message belonged to — switch the chat view to it.
+      const u5b = await listen<string>('notification-clicked', (event) => {
+        const sessionKey = event.payload;
+        if (sessionKey) {
+          useSessionStore.getState().setActiveSession(sessionKey);
+        }
+      });
+      if (cancelled) { u5b(); return; }
+      unlisteners.push(u5b);
+
       // Bring window to foreground when user clicks a notification
-      const u5 = await onAction(async () => {
+      const u6 = await onAction(async () => {
         try {
           const win = getCurrentWindow();
           await win.unminimize();
@@ -242,13 +279,13 @@ export function useTauriEvents() {
           console.warn('[deskclaw] notification action focus failed:', err);
         }
       });
-      if (cancelled) { u5.unregister(); return; }
-      unlisteners.push(() => u5.unregister());
+      if (cancelled) { u6.unregister(); return; }
+      unlisteners.push(() => u6.unregister());
     })();
 
     return () => {
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [setPhase, addMessage, addRun, removeRun, setAgentPhase, updateSession]);
+  }, [setPhase, addMessage, applyDelta, finalizeStream, addRun, removeRun, setAgentPhase, updateSession]);
 }

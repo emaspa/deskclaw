@@ -1,14 +1,40 @@
 import { useCallback, useEffect, useState } from 'react';
+import { WifiOff } from 'lucide-react';
 import { TitleBar } from './TitleBar';
 import { Sidebar } from './Sidebar';
 import { ChatView } from '../chat/ChatView';
+import { useConnectionStore } from '../../store/connectionStore';
 import { useSessionStore } from '../../store/sessionStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { listSessions, getAgentIdentity } from '../../lib/tauri';
+import { listSessions, getAgentIdentity, listAgents, getGatewayInfo, setNotificationIdentity } from '../../lib/tauri';
+import type { AgentInfo } from '../../lib/types';
+
+/** Parse the agents.list payload into the store's AgentInfo shape */
+function parseAgents(result: Record<string, unknown>): AgentInfo[] {
+  const defaultId = result.defaultId as string | undefined;
+  const raw = result.agents;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+    .map((a) => {
+      const identity = (a.identity || {}) as Record<string, unknown>;
+      const model = (a.model || {}) as Record<string, unknown>;
+      return {
+        id: (a.id as string) || '',
+        name: (a.name as string) || (identity.name as string) || undefined,
+        emoji: (identity.emoji as string) || undefined,
+        avatarUrl: (identity.avatarUrl as string) || undefined,
+        model: (model.primary as string) || undefined,
+        isDefault: a.id === defaultId,
+      };
+    })
+    .filter((a) => a.id);
+}
 
 export function AppShell() {
   const sessionCount = useSessionStore((s) => s.sessions.length);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const phase = useConnectionStore((s) => s.phase);
   const activeAccountId = useSettingsStore((s) => s.activeAccountId);
   const updateAccountLayout = useSettingsStore((s) => s.updateAccountLayout);
   const layoutPrefs = useSettingsStore((s) => s.getActiveAccountLayout());
@@ -22,11 +48,20 @@ export function AppShell() {
         const [sessions] = await Promise.all([
           listSessions(),
           getAgentIdentity().then((identity) => {
+            const name = (identity.name as string) || (identity.displayName as string) || 'Assistant';
             useSessionStore.getState().setAgentIdentity({
-              name: (identity.name as string) || (identity.displayName as string) || 'Assistant',
+              name,
               persona: (identity.persona as string) || undefined,
               emoji: (identity.emoji as string) || undefined,
             });
+            // Attribute desktop notifications to the agent (e.g. "Luna")
+            setNotificationIdentity(name).catch(() => {});
+          }).catch(() => {}),
+          listAgents().then((result) => {
+            useSessionStore.getState().setAgents(parseAgents(result));
+          }).catch((e) => console.warn('[deskclaw] agents.list failed:', e)),
+          getGatewayInfo().then((info) => {
+            useSessionStore.getState().setGatewayInfo(info);
           }).catch(() => {}),
         ]);
         useSessionStore.getState().setSessions(sessions);
@@ -82,7 +117,28 @@ export function AppShell() {
     >
       <TitleBar />
       <Sidebar collapsed={sidebarCollapsed} onToggle={handleSidebarToggle} />
-      <ChatView />
+      <div style={{ gridArea: 'content', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {phase === 'Reconnecting' && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              background: 'rgba(255, 171, 0, 0.12)',
+              borderBottom: '1px solid rgba(255, 171, 0, 0.25)',
+              color: 'var(--accent-warning)',
+              fontSize: 'var(--font-xs)',
+              flexShrink: 0,
+            }}
+          >
+            <WifiOff size={13} />
+            Connection lost — reconnecting...
+          </div>
+        )}
+        <ChatView />
+      </div>
     </div>
   );
 }

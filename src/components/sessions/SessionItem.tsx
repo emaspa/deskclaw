@@ -1,4 +1,7 @@
-import { MessageSquare } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { MessageSquare, MoreHorizontal, Archive, RotateCcw, Trash2 } from 'lucide-react';
+import { useSessionStore } from '../../store/sessionStore';
+import { compactSession, resetSession, deleteSession, listSessions } from '../../lib/tauri';
 import type { SessionInfo } from '../../lib/types';
 
 interface SessionItemProps {
@@ -53,64 +56,209 @@ function formatSubtitle(session: SessionInfo): string {
   return parts.join(' · ');
 }
 
-export function SessionItem({ session, active, onClick }: SessionItemProps) {
+async function refreshSessions() {
+  try {
+    const sessions = await listSessions();
+    useSessionStore.getState().setSessions(sessions);
+  } catch {
+    // sidebar refresh button remains available
+  }
+}
+
+function SessionMenu({ session, onClose }: { session: SessionInfo; onClose: () => void }) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const hasMethod = useSessionStore((s) => s.hasGatewayMethod);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [onClose]);
+
+  const run = async (label: string, fn: () => Promise<unknown>) => {
+    setBusy(label);
+    try {
+      await fn();
+      await refreshSessions();
+      onClose();
+    } catch (e) {
+      console.error(`[deskclaw] ${label} failed:`, e);
+      setBusy(null);
+    }
+  };
+
+  const items = [
+    hasMethod('sessions.compact') && {
+      icon: Archive,
+      label: 'Compact context',
+      action: () => run('compact', () => compactSession(session.key)),
+    },
+    hasMethod('sessions.reset') && {
+      icon: RotateCcw,
+      label: 'Reset session',
+      action: () => run('reset', () => resetSession(session.key)),
+    },
+    hasMethod('sessions.delete') && {
+      icon: Trash2,
+      label: confirmDelete ? 'Confirm delete?' : 'Delete session',
+      danger: true,
+      action: () => {
+        if (!confirmDelete) {
+          setConfirmDelete(true);
+          return;
+        }
+        run('delete', async () => {
+          await deleteSession(session.key);
+          const store = useSessionStore.getState();
+          if (store.activeSessionId === session.key) store.setActiveSession(null);
+        });
+      },
+    },
+  ].filter(Boolean) as { icon: typeof Archive; label: string; danger?: boolean; action: () => void }[];
+
   return (
-    <button
-      onClick={onClick}
-      className="animate-slide-in-left"
+    <div
+      ref={menuRef}
       style={{
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        padding: '10px 12px',
-        background: active ? 'rgba(108, 92, 231, 0.12)' : 'transparent',
-        border: 'none',
+        position: 'absolute',
+        top: '100%',
+        right: 8,
+        zIndex: 50,
+        minWidth: 170,
+        background: 'var(--bg-elevated)',
+        border: '1px solid var(--glass-border)',
         borderRadius: 'var(--radius-md)',
-        color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-        cursor: 'pointer',
-        textAlign: 'left',
-        transition: 'all 0.15s ease',
-        fontFamily: 'inherit',
-        fontSize: 'var(--font-sm)',
-      }}
-      onMouseEnter={(e) => {
-        if (!active) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
-      }}
-      onMouseLeave={(e) => {
-        if (!active) e.currentTarget.style.background = 'transparent';
+        boxShadow: 'var(--shadow-lg)',
+        padding: '4px',
       }}
     >
-      <MessageSquare
-        size={16}
+      {items.map(({ icon: Icon, label, danger, action }) => (
+        <button
+          key={label}
+          onClick={(e) => { e.stopPropagation(); action(); }}
+          disabled={busy !== null}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '7px 10px',
+            background: 'transparent',
+            border: 'none',
+            borderRadius: 'var(--radius-sm)',
+            color: danger ? 'var(--accent-danger)' : 'var(--text-primary)',
+            fontSize: 'var(--font-sm)',
+            cursor: 'pointer',
+            textAlign: 'left',
+            fontFamily: 'inherit',
+            opacity: busy ? 0.5 : 1,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+        >
+          <Icon size={13} style={{ flexShrink: 0 }} />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function SessionItem({ session, active, onClick }: SessionItemProps) {
+  const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(); }}
+        className="animate-slide-in-left"
         style={{
-          color: active ? 'var(--accent-primary)' : 'var(--text-muted)',
-          flexShrink: 0,
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '10px 12px',
+          background: active ? 'rgba(108, 92, 231, 0.12)' : 'transparent',
+          border: 'none',
+          borderRadius: 'var(--radius-md)',
+          color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+          cursor: 'pointer',
+          textAlign: 'left',
+          transition: 'all 0.15s ease',
+          fontFamily: 'inherit',
+          fontSize: 'var(--font-sm)',
+          boxSizing: 'border-box',
         }}
-      />
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        <div
+        onMouseEnter={(e) => {
+          setHovered(true);
+          if (!active) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
+        }}
+        onMouseLeave={(e) => {
+          setHovered(false);
+          if (!active) e.currentTarget.style.background = 'transparent';
+        }}
+      >
+        <MessageSquare
+          size={16}
           style={{
-            fontWeight: active ? 600 : 400,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
+            color: active ? 'var(--accent-primary)' : 'var(--text-muted)',
+            flexShrink: 0,
           }}
-        >
-          {formatSessionName(session)}
+        />
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <div
+            style={{
+              fontWeight: active ? 600 : 400,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {formatSessionName(session)}
+          </div>
+          <div
+            style={{
+              fontSize: 'var(--font-xs)',
+              color: 'var(--text-muted)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {formatSubtitle(session)}
+          </div>
         </div>
-        <div
-          style={{
-            fontSize: 'var(--font-xs)',
-            color: 'var(--text-muted)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {formatSubtitle(session)}
-        </div>
+        {(hovered || menuOpen) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+            aria-label="Session actions"
+            title="Session actions"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              padding: '2px',
+              borderRadius: 'var(--radius-sm)',
+              display: 'flex',
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        )}
       </div>
-    </button>
+      {menuOpen && <SessionMenu session={session} onClose={() => setMenuOpen(false)} />}
+    </div>
   );
 }

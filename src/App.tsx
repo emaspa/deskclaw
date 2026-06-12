@@ -7,7 +7,8 @@ import { AppShell } from './components/layout/AppShell';
 export function App() {
   useTauriEvents();
   const phase = useConnectionStore((s) => s.phase);
-  const isConnected = phase === 'Connected';
+  // Keep the chat UI up while the backend reconnects in the background
+  const isConnected = phase === 'Connected' || phase === 'Reconnecting';
 
   useEffect(() => {
     console.log('[deskclaw] phase changed:', phase, 'isConnected:', isConnected);

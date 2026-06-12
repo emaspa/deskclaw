@@ -1,6 +1,6 @@
 [package]
 name = "deskclaw"
-version = "0.2.9"
+version = "0.3.0"
 edition = "2021"
 
 [lib]
@@ -17,12 +17,10 @@ tauri-plugin-notification = "2"
 
 tokio = { version = "1", features = ["full"] }
 
-russh = "0.46"
-russh-keys = "0.46"
-async-trait = "0.1"
+russh = { version = "0.61", default-features = false, features = ["flate2", "ring", "rsa"] } # ring instead of aws-lc-rs (no cmake needed)
 
 
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.29"
 futures-util = "0.3"
 
 ed25519-dalek = { version = "2", features = ["rand_core"] }
@@ -41,3 +39,10 @@ uuid = { version = "1", features = ["v4"] }
 zeroize = "1"
 log = "0.4"
 env_logger = "0.11"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+tauri-winrt-notification = "0.7"
+
+[target.'cfg(not(windows))'.dependencies]
+notify-rust = "4"

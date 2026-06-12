@@ -1,6 +1,5 @@
-use async_trait::async_trait;
 use russh::client;
-use russh_keys::key;
+use russh::keys::{PrivateKeyWithHashAlg, PublicKey};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -8,33 +7,32 @@ pub struct SshClient {
     /// Optional expected server public key for verification.
     /// If None, all keys are accepted (first-connect / TOFU).
     /// If Some, the server key must match exactly.
-    expected_server_key: Option<key::PublicKey>,
+    expected_server_key: Option<PublicKey>,
 }
 
 impl SshClient {
-    pub fn new(expected_key: Option<key::PublicKey>) -> Self {
+    pub fn new(expected_key: Option<PublicKey>) -> Self {
         Self {
             expected_server_key: expected_key,
         }
     }
 }
 
-#[async_trait]
 impl client::Handler for SshClient {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &key::PublicKey,
+        server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
         match &self.expected_server_key {
             Some(expected) => {
                 let matches = server_public_key == expected;
                 if !matches {
                     log::warn!(
-                        "SSH server key mismatch! Expected {:?}, got {:?}",
-                        expected.name(),
-                        server_public_key.name()
+                        "SSH server key mismatch! Expected {}, got {}",
+                        expected.algorithm(),
+                        server_public_key.algorithm()
                     );
                 }
                 Ok(matches)
@@ -43,7 +41,7 @@ impl client::Handler for SshClient {
                 // TOFU (Trust On First Use): accept and log the key
                 log::info!(
                     "Accepting SSH server key (TOFU): type={}",
-                    server_public_key.name()
+                    server_public_key.algorithm()
                 );
                 Ok(true)
             }
@@ -86,13 +84,22 @@ impl SshTunnel {
             }
             super::auth::SshAuth::KeyFile { path, passphrase } => {
                 let key = super::auth::load_private_key(path, passphrase.as_deref())?;
-                session.authenticate_publickey(username, key).await
+                // RSA keys need the strongest hash the server supports (SHA-2
+                // extensions); other key types ignore the hint.
+                let best_hash = session
+                    .best_supported_rsa_hash()
+                    .await
+                    .map_err(|e| crate::error::AppError::Ssh(e.to_string()))?
+                    .flatten();
+                session
+                    .authenticate_publickey(username, PrivateKeyWithHashAlg::new(key, best_hash))
+                    .await
             }
         };
 
         match auth_result {
-            Ok(true) => {}
-            Ok(false) => {
+            Ok(result) if result.success() => {}
+            Ok(_) => {
                 return Err(crate::error::AppError::Ssh(
                     "Authentication failed".into(),
                 ))
@@ -193,110 +200,6 @@ impl SshTunnel {
         String::from_utf8(stdout)
             .map(|s| s.trim().to_string())
             .map_err(|e| crate::error::AppError::Ssh(format!("utf8: {}", e)))
-    }
-
-    /// Write binary data to a file on the remote server via SSH exec.
-    pub async fn write_file(
-        &self,
-        remote_path: &str,
-        data: &[u8],
-    ) -> Result<(), crate::error::AppError> {
-        let channel = self
-            .session
-            .channel_open_session()
-            .await
-            .map_err(|e| crate::error::AppError::Ssh(format!("open session: {}", e)))?;
-
-        // Use cat to write stdin to the file — shell-escape the path
-        let escaped = shell_escape(remote_path);
-        let cmd = format!(
-            "mkdir -p \"$(dirname {})\" && cat > {}",
-            escaped, escaped
-        );
-        channel
-            .exec(true, cmd.as_str())
-            .await
-            .map_err(|e| crate::error::AppError::Ssh(format!("exec: {}", e)))?;
-
-        // Write data to stdin, then close (EOF)
-        channel
-            .data(&data[..])
-            .await
-            .map_err(|e| crate::error::AppError::Ssh(format!("write data: {}", e)))?;
-        channel
-            .eof()
-            .await
-            .map_err(|e| crate::error::AppError::Ssh(format!("eof: {}", e)))?;
-
-        // Wait for the channel to close
-        let mut channel_stream = channel.into_stream();
-        use tokio::io::AsyncReadExt;
-        let mut buf = [0u8; 256];
-        loop {
-            match channel_stream.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(_) => {}
-                Err(_) => break,
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Forward a local port to a remote host:port through the SSH tunnel.
-    /// Returns the locally-bound port number. The forwarding task runs in the
-    /// background and terminates when the SSH session is dropped.
-    pub async fn forward_local_port(
-        &self,
-        remote_host: &str,
-        remote_port: u16,
-    ) -> Result<u16, crate::error::AppError> {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .map_err(|e| crate::error::AppError::Ssh(e.to_string()))?;
-        let local_port = listener
-            .local_addr()
-            .map_err(|e| crate::error::AppError::Ssh(format!("local_addr: {}", e)))?
-            .port();
-        let session = self.session.clone();
-        let rhost = remote_host.to_string();
-
-        tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((mut local_stream, _)) => {
-                        let sess = session.clone();
-                        let rh = rhost.clone();
-                        tokio::spawn(async move {
-                            match sess
-                                .channel_open_direct_tcpip(
-                                    &rh,
-                                    remote_port as u32,
-                                    "127.0.0.1",
-                                    local_port as u32,
-                                )
-                                .await
-                            {
-                                Ok(channel) => {
-                                    let mut ssh_stream = channel.into_stream();
-                                    let _ = tokio::io::copy_bidirectional(
-                                        &mut local_stream,
-                                        &mut ssh_stream,
-                                    )
-                                    .await;
-                                }
-                                Err(e) => {
-                                    log::debug!("Port forward channel error: {}", e);
-                                }
-                            }
-                        });
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-
-        Ok(local_port)
     }
 
     pub async fn disconnect(self) -> Result<(), crate::error::AppError> {

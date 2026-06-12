@@ -1,13 +1,131 @@
 import { useEffect, useState, useRef } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Coins } from 'lucide-react';
 import { useSessionStore } from '../../store/sessionStore';
-import { listModels, setModel } from '../../lib/tauri';
+import { listModels, setModel, getSessionUsage, getUsageCost } from '../../lib/tauri';
 
 interface ModelInfo {
   id: string;
   name: string;
   provider: string;
   reasoning?: boolean;
+}
+
+interface UsageTotals {
+  totalTokens?: number;
+  totalCost?: number;
+  input?: number;
+  output?: number;
+}
+
+function extractTotals(result: Record<string, unknown>): UsageTotals {
+  const totals = (result.totals || {}) as Record<string, unknown>;
+  return {
+    totalTokens: totals.totalTokens as number | undefined,
+    totalCost: totals.totalCost as number | undefined,
+    input: totals.input as number | undefined,
+    output: totals.output as number | undefined,
+  };
+}
+
+function formatCost(cost?: number): string {
+  if (cost == null) return '—';
+  return cost < 0.01 && cost > 0 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`;
+}
+
+/** Coin button + popover with session/global token and cost stats from the usage APIs */
+function UsagePopover({ sessionKey }: { sessionKey: string }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [session, setSession] = useState<UsageTotals | null>(null);
+  const [global, setGlobal] = useState<UsageTotals | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const available = useSessionStore((s) => s.hasGatewayMethod('sessions.usage'));
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    Promise.allSettled([
+      getSessionUsage(sessionKey).then((r) => setSession(extractTotals(r))),
+      getUsageCost().then((r) => setGlobal(extractTotals(r))),
+    ]).finally(() => setLoading(false));
+  }, [open, sessionKey]);
+
+  if (!available) return null;
+
+  const rows: Array<{ label: string; totals: UsageTotals | null }> = [
+    { label: 'This session', totals: session },
+    { label: 'All agents (30d)', totals: global },
+  ];
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'flex' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Usage and cost"
+        title="Usage and cost"
+        style={{
+          background: 'transparent',
+          border: 'none',
+          padding: '2px 4px',
+          color: open ? 'var(--accent-primary)' : 'var(--text-muted)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          borderRadius: 'var(--radius-sm)',
+          transition: 'color 0.15s',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = open ? 'var(--accent-primary)' : 'var(--text-muted)'; }}
+      >
+        <Coins size={13} />
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            right: 0,
+            marginTop: 4,
+            minWidth: 240,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--glass-border)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: 'var(--shadow-lg)',
+            zIndex: 100,
+            padding: '10px 12px',
+            fontSize: 'var(--font-xs)',
+          }}
+        >
+          {loading && <div style={{ color: 'var(--text-muted)' }}>Loading usage...</div>}
+          {!loading && rows.map(({ label, totals }) => (
+            <div key={label} style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 3 }}>{label}</div>
+              {totals ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, color: 'var(--text-muted)' }}>
+                  <span>Tokens: {totals.totalTokens != null ? formatTokens(totals.totalTokens) : '—'}
+                    {totals.input != null && totals.output != null
+                      ? ` (${formatTokens(totals.input)} in / ${formatTokens(totals.output)} out)` : ''}
+                  </span>
+                  <span>Cost: <span style={{ color: 'var(--accent-success)' }}>{formatCost(totals.totalCost)}</span></span>
+                </div>
+              ) : (
+                <div style={{ color: 'var(--text-muted)' }}>unavailable</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ContextBar() {
@@ -233,6 +351,7 @@ export function ContextBar() {
             </span>
           </>
         )}
+        <UsagePopover sessionKey={session.key} />
       </div>
     </div>
   );

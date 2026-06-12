@@ -83,19 +83,3 @@ pub struct SessionEntry {
     pub context_window: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatHistoryResult {
-    pub messages: Vec<ChatMessageEntry>,
-    #[serde(default, rename = "hasMore")]
-    pub has_more: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatMessageEntry {
-    pub id: String,
-    pub role: String,
-    pub content: String,
-    pub timestamp: String,
-    #[serde(default, rename = "messageType")]
-    pub message_type: Option<String>,
-}

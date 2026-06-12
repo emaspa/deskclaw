@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Paperclip } from 'lucide-react';
+import { Send, Paperclip, Zap } from 'lucide-react';
 import { useSessionStore } from '../../store/sessionStore';
 import { useChatStore } from '../../store/chatStore';
-import { sendMessage } from '../../lib/tauri';
+import { sendMessage, steerMessage } from '../../lib/tauri';
 import { EmojiPicker } from './EmojiPicker';
 import { AttachmentPreview } from './AttachmentPreview';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -34,15 +34,14 @@ export function MessageInput() {
 
   const updateMessageContent = useChatStore((s) => s.updateMessageContent);
 
-  // Send a message to the backend
+  // Send a message to the backend. Attachments travel inline on chat.send
+  // (protocol v4 stages them server-side); the local bubble renders them
+  // directly from the data we already hold.
   const doSend = useCallback(async (sessionId: string, messageText: string, atts?: Attachment[]) => {
-    // Show uploading status in local display (will be updated with real paths after send)
     let contentDisplay = messageText;
     if (atts && atts.length > 0) {
-      const names = atts.map((a) => a.name).join(', ');
-      contentDisplay = messageText
-        ? `${messageText}\n[Uploading: ${names}]`
-        : `[Uploading: ${names}]`;
+      const dataUrls = atts.map((a) => `data:${a.mimeType};base64,${a.data}`).join('\n');
+      contentDisplay = messageText ? `${messageText}\n${dataUrls}` : dataUrls;
     }
 
     const msgId = crypto.randomUUID();
@@ -58,24 +57,30 @@ export function MessageInput() {
     addRun(sessionId, tempRunId);
 
     try {
-      const result = await sendMessage(sessionId, messageText, atts) as Record<string, unknown>;
-      console.log('[deskclaw] chat.send result:', result);
-
-      // Update local message with tunneled media URLs so RemoteMedia renders them inline
-      const mediaUrls = result?.mediaUrls as string[] | undefined;
-      if (mediaUrls && mediaUrls.length > 0) {
-        const urlsText = mediaUrls.join('\n');
-        updateMessageContent(sessionId, msgId,
-          messageText ? `${messageText}\n${urlsText}` : urlsText
-        );
-      }
-
+      await sendMessage(sessionId, messageText, atts);
       removeRun(sessionId, tempRunId);
     } catch (err) {
       console.error('[deskclaw] chat.send error:', err);
+      updateMessageContent(sessionId, msgId, `${contentDisplay}\n\n*Send failed: ${err}*`);
       removeRun(sessionId, tempRunId);
     }
   }, [addMessage, updateMessageContent, addRun, removeRun]);
+
+  // Steer: inject guidance into the running agent instead of queueing
+  const doSteer = useCallback(async (sessionId: string, messageText: string) => {
+    addMessage(sessionId, {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: `⚡ ${messageText}`,
+      timestamp: new Date().toISOString(),
+      session_id: sessionId,
+    });
+    try {
+      await steerMessage(sessionId, messageText);
+    } catch (err) {
+      console.error('[deskclaw] sessions.steer error:', err);
+    }
+  }, [addMessage]);
 
   // Auto-send queued messages when agent becomes idle
   useEffect(() => {
@@ -122,6 +127,17 @@ export function MessageInput() {
 
     textareaRef.current?.focus();
   }, [text, attachments, activeSessionId, agentBusy, addPending, doSend]);
+
+  const handleSteer = useCallback(() => {
+    if (!text.trim() || !activeSessionId || !agentBusy) return;
+    const messageText = text.trim();
+    setText('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    doSteer(activeSessionId, messageText);
+    textareaRef.current?.focus();
+  }, [text, activeSessionId, agentBusy, doSteer]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -261,6 +277,28 @@ export function MessageInput() {
             }}
           />
         )}
+        {!isRecording && agentBusy && (
+          <button
+            onClick={handleSteer}
+            disabled={!text.trim()}
+            aria-label="Steer the running agent"
+            title="Steer: interrupt the running agent with this guidance"
+            style={{
+              background: 'transparent',
+              border: '1px solid ' + (text.trim() ? 'var(--accent-warning)' : 'var(--glass-border)'),
+              borderRadius: 'var(--radius-md)',
+              padding: '7px',
+              cursor: text.trim() ? 'pointer' : 'default',
+              color: text.trim() ? 'var(--accent-warning)' : 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'all 0.2s ease',
+              flexShrink: 0,
+            }}
+          >
+            <Zap size={16} />
+          </button>
+        )}
         {!isRecording && (
           <button
             onClick={handleSend}
@@ -291,7 +329,9 @@ export function MessageInput() {
           textAlign: 'center',
         }}
       >
-        Enter to send, Shift+Enter for new line
+        {agentBusy
+          ? 'Enter to queue, ⚡ to steer the running agent'
+          : 'Enter to send, Shift+Enter for new line'}
       </div>
     </div>
   );

@@ -5,7 +5,26 @@ export type ConnectionPhase =
   | 'ConnectingGateway'
   | 'Handshaking'
   | 'Connected'
+  | 'Reconnecting'
   | { Error: string };
+
+/** Gateway features and limits from the hello-ok handshake */
+export interface GatewayInfo {
+  protocol: number;
+  methods: string[];
+  events: string[];
+  max_payload: number;
+  tick_interval_ms: number;
+}
+
+export interface AgentInfo {
+  id: string;
+  name?: string;
+  emoji?: string;
+  avatarUrl?: string;
+  model?: string;
+  isDefault: boolean;
+}
 
 export interface ConnectParams {
   host: string;
@@ -39,6 +58,8 @@ export interface ChatMessage {
   timestamp: string;
   session_id: string;
   message_type?: string;
+  /** True while the message is being streamed via delta events */
+  streaming?: boolean;
 }
 
 export interface AppSettings {

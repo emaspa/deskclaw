@@ -1,10 +1,10 @@
-import { useState, useEffect, memo, useMemo } from 'react';
-import { Bot, User, Terminal, Info, FileText } from 'lucide-react';
+import { useState, useEffect, useRef, memo, useMemo } from 'react';
+import { Bot, User, Terminal, Info, FileText, Volume2, Square } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useSessionStore } from '../../store/sessionStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { downloadRemoteFile } from '../../lib/tauri';
+import { downloadRemoteFile, ttsConvert } from '../../lib/tauri';
 import { parseEmoticons } from '../../lib/emoji';
 import type { ChatMessage } from '../../lib/types';
 
@@ -55,12 +55,51 @@ function formatTime(ts: string): string {
 // Rejects paths containing ".." to prevent path traversal.
 const DESKCLAW_MEDIA_RE = /(\/(?:(?!\.\.)[\w.~/-])+\/\.deskclaw\/media\/[\w.-]+\.(?:jpg|jpeg|png|gif|webp|bmp|mp3|ogg|wav|m4a|mp4|pdf|doc|docx|txt))/gi;
 const MEDIA_URL_RE = /(https?:\/\/127\.0\.0\.1:\d+\/[\w.-]+\.(?:jpg|jpeg|png|gif|webp|bmp|mp3|ogg|wav|m4a|mp4|webm|pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|json|xml|zip|rar|7z))/gi;
+// Inline base64 attachments rendered straight from local data (no media server)
+const DATA_URL_RE = /(data:[\w.+-]+\/[\w.+-]+;base64,[A-Za-z0-9+/=]+)/g;
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']);
 const AUDIO_EXTS = new Set(['mp3', 'ogg', 'wav', 'm4a', 'webm']);
 
 function getExt(path: string): string {
   return path.split('.').pop()?.toLowerCase() || '';
+}
+
+/** Renders an inline base64 data URL (image/audio/file chip) */
+function DataMedia({ url }: { url: string }) {
+  const mime = url.slice(5, url.indexOf(';'));
+  if (mime.startsWith('image/')) {
+    return (
+      <img
+        src={url}
+        alt="attachment"
+        style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 'var(--radius-md)', marginTop: 4, cursor: 'pointer' }}
+        onClick={() => window.open(url, '_blank')}
+      />
+    );
+  }
+  if (mime.startsWith('audio/')) {
+    return <audio controls src={url} style={{ maxWidth: '100%', marginTop: 4 }} />;
+  }
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 12px',
+        background: 'rgba(108, 92, 231, 0.08)',
+        border: '1px solid rgba(108, 92, 231, 0.2)',
+        borderRadius: 'var(--radius-md)',
+        fontSize: 'var(--font-sm)',
+        color: 'var(--text-primary)',
+        marginTop: 4,
+      }}
+    >
+      <FileText size={18} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+      {mime}
+    </span>
+  );
 }
 
 /** Renders an inline image or audio for a tunneled HTTP URL or remote path */
@@ -197,6 +236,66 @@ function RemoteMediaFallback({ path }: { path: string }) {
   return <audio controls src={dataUrl} style={{ maxWidth: '100%', marginTop: 4 }} />;
 }
 
+/** Reads a message aloud via the gateway's tts.convert, fetching the audio over SSH */
+function SpeakButton({ text }: { text: string }) {
+  const [state, setState] = useState<'idle' | 'loading' | 'playing'>('idle');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => () => { audioRef.current?.pause(); }, []);
+
+  const handleClick = async () => {
+    if (state === 'playing') {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      setState('idle');
+      return;
+    }
+    if (state === 'loading') return;
+    setState('loading');
+    try {
+      const res = await ttsConvert(text);
+      const audioPath = (res.audioPath as string) || '';
+      if (!audioPath) throw new Error((res.error as string) || 'no audio returned');
+      const b64 = await downloadRemoteFile(audioPath);
+      const ext = audioPath.split('.').pop()?.toLowerCase() || 'mp3';
+      const mime = ext === 'wav' ? 'audio/wav'
+        : ext === 'ogg' || ext === 'opus' ? 'audio/ogg'
+        : ext === 'm4a' || ext === 'mp4' ? 'audio/mp4'
+        : 'audio/mpeg';
+      const audio = new Audio(`data:${mime};base64,${b64}`);
+      audioRef.current = audio;
+      audio.onended = () => setState('idle');
+      audio.onerror = () => setState('idle');
+      await audio.play();
+      setState('playing');
+    } catch (err) {
+      console.warn('[deskclaw] tts.convert failed:', err);
+      setState('idle');
+    }
+  };
+
+  const Icon = state === 'playing' ? Square : Volume2;
+  return (
+    <button
+      onClick={handleClick}
+      aria-label={state === 'playing' ? 'Stop playback' : 'Read aloud'}
+      title={state === 'playing' ? 'Stop playback' : 'Read aloud'}
+      style={{
+        background: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        color: state === 'idle' ? 'var(--text-muted)' : 'var(--accent-secondary)',
+        padding: '0 2px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        opacity: state === 'loading' ? 0.5 : 1,
+      }}
+    >
+      <Icon size={12} />
+    </button>
+  );
+}
+
 /** Renders message text with inline media for any .deskclaw/media/ paths or tunneled URLs */
 const MessageContent = memo(function MessageContent({ content }: { content: string }) {
   const { text, urls } = useMemo(() => parseMediaRefs(content), [content]);
@@ -210,7 +309,11 @@ const MessageContent = memo(function MessageContent({ content }: { content: stri
       )}
       {urls.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {urls.map((u) => <RemoteMedia key={u} url={u} />)}
+          {urls.map((u, i) =>
+            u.startsWith('data:')
+              ? <DataMedia key={i} url={u} />
+              : <RemoteMedia key={u} url={u} />
+          )}
         </div>
       )}
     </div>
@@ -220,12 +323,17 @@ const MessageContent = memo(function MessageContent({ content }: { content: stri
 /** Splits message content into text and media references (URLs or paths) */
 function parseMediaRefs(content: string): { text: string; urls: string[] } {
   const urls: string[] = [];
-  // First extract HTTP media URLs
-  let text = content.replace(MEDIA_URL_RE, (match) => {
+  // Inline base64 attachments (current send path)
+  let text = content.replace(DATA_URL_RE, (match) => {
     urls.push(match.trim());
     return '';
   });
-  // Then extract file paths (fallback for old-style messages)
+  // HTTP media URLs (legacy tunneled media server)
+  text = text.replace(MEDIA_URL_RE, (match) => {
+    urls.push(match.trim());
+    return '';
+  });
+  // File paths (fallback for old-style messages)
   text = text.replace(DESKCLAW_MEDIA_RE, (match) => {
     urls.push(match.trim());
     return '';
@@ -240,6 +348,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
   const isAssistant = message.role === 'assistant';
   const isSystem = message.role === 'system';
   const agentIdentity = useSessionStore((s) => s.agentIdentity);
+  const ttsAvailable = useSessionStore((s) => s.hasGatewayMethod('tts.convert'));
   // Return the stable account object reference — do NOT create a new object in the selector
   const activeAccount = useSettingsStore((s) =>
     s.activeAccountId ? s.accounts.find((a) => a.id === s.activeAccountId) ?? null : null
@@ -327,15 +436,25 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
             }}
           >
             <MessageContent content={message.content} />
+            {message.streaming && (
+              <span style={{ opacity: 0.6, color: 'var(--accent-secondary)' }}>▌</span>
+            )}
             <div
               style={{
                 fontSize: 'var(--font-xs)',
                 color: 'var(--text-muted)',
                 marginTop: '4px',
                 textAlign: isUser ? 'right' : 'left',
+                display: 'flex',
+                gap: '6px',
+                alignItems: 'center',
+                justifyContent: isUser ? 'flex-end' : 'flex-start',
               }}
             >
               {formatTime(message.timestamp)}
+              {isAssistant && !message.streaming && ttsAvailable && (
+                <SpeakButton text={parseMediaRefs(message.content).text} />
+              )}
             </div>
           </div>
         </div>

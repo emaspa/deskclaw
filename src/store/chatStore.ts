@@ -15,6 +15,8 @@ interface ChatState {
   scrollVersion: number;
   addMessage: (sessionId: string, message: ChatMessage) => void;
   updateMessageContent: (sessionId: string, messageId: string, content: string) => void;
+  applyDelta: (sessionId: string, streamId: string, deltaText: string, replace: boolean) => void;
+  finalizeStream: (sessionId: string, streamId: string, final: ChatMessage | null) => void;
   setMessages: (sessionId: string, messages: ChatMessage[]) => void;
   addRun: (sessionId: string, runId: string) => void;
   removeRun: (sessionId: string, runId: string) => void;
@@ -53,6 +55,59 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       },
     })),
+  // Progressive rendering for protocol v4 delta events: append (or replace,
+  // when the gateway rewrites non-prefix content) into a streaming message
+  // keyed by the run id, creating it on the first delta.
+  applyDelta: (sessionId, streamId, deltaText, replace) =>
+    set((state) => {
+      const messages = state.messages[sessionId] || [];
+      const existing = messages.find((m) => m.id === streamId);
+      let next: ChatMessage[];
+      if (existing) {
+        next = messages.map((m) =>
+          m.id === streamId
+            ? { ...m, content: replace ? deltaText : m.content + deltaText }
+            : m
+        );
+      } else {
+        next = [...messages, {
+          id: streamId,
+          role: 'assistant' as const,
+          content: deltaText,
+          timestamp: new Date().toISOString(),
+          session_id: sessionId,
+          streaming: true,
+        }];
+      }
+      return {
+        scrollVersion: state.scrollVersion + 1,
+        messages: { ...state.messages, [sessionId]: next },
+      };
+    }),
+  // Swap the streaming placeholder for the final message (or drop it when the
+  // run produced no final content, e.g. on abort).
+  finalizeStream: (sessionId, streamId, final) =>
+    set((state) => {
+      const messages = state.messages[sessionId] || [];
+      const idx = messages.findIndex((m) => m.id === streamId);
+      let next: ChatMessage[];
+      if (idx >= 0) {
+        next = [...messages];
+        if (final) {
+          next[idx] = final;
+        } else {
+          next.splice(idx, 1);
+        }
+      } else if (final) {
+        next = [...messages, final];
+      } else {
+        return state;
+      }
+      return {
+        scrollVersion: state.scrollVersion + 1,
+        messages: { ...state.messages, [sessionId]: next },
+      };
+    }),
   setMessages: (sessionId, messages) =>
     set((state) => ({
       scrollVersion: state.scrollVersion + 1,
