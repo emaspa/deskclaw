@@ -11,7 +11,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "~2.10", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
 
@@ -50,4 +50,4 @@ notify-rust = "4"
 [target.'cfg(target_os = "linux")'.dependencies]
 # Webview mic permission handling for voice input (WebKitGTK denies
 # getUserMedia by default). Version pinned to match wry's.
-webkit2gtk = { version = "=2.0.1", features = ["v2_40"] }
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
